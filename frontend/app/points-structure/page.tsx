@@ -1,5 +1,5 @@
 'use client';
-
+import { Select } from '@/components/select';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -81,12 +81,15 @@ export default function PointsStructurePage() {
     };
   }, [points]);
 
-  const resetFilters = () => {
-    setSearch('');
-    setTypePoint('TOUS');
-    setActif('true');
-  };
+ const resetFilters = () => {
+  setSearch('');
+  setTypePoint('TOUS');
+  setActif('true');
 
+  setTimeout(() => {
+    loadPoints();
+  }, 0);
+};
   const handleDeleteOrRestore = async (point: PointStructureListItem) => {
     const message = point.actif
       ? `Voulez-vous désactiver le point "${point.libelle}" ?`
@@ -137,7 +140,7 @@ export default function PointsStructurePage() {
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/arborescences/geographique"
+              href="/arborescences"
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               <MapPin size={18} />
@@ -209,36 +212,28 @@ export default function PointsStructurePage() {
               />
             </div>
 
-            <select
-              value={typePoint}
-              onChange={(e) =>
-                setTypePoint(e.target.value as TypePointStructureFilter)
-              }
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-[#0b3d4f]"
-            >
-              <option value="TOUS">Tous les types</option>
-              <option value="GEOGRAPHIQUE">Géographiques</option>
-              <option value="TECHNIQUE">Techniques</option>
-            </select>
+         <Select
+  value={typePoint}
+  onValueChange={(value: string) =>
+    setTypePoint(value as TypePointStructureFilter)
+  }
+  items={[
+    { label: 'Tous les types', value: 'TOUS' },
+    { label: 'Géographiques', value: 'GEOGRAPHIQUE' },
+    { label: 'Techniques', value: 'TECHNIQUE' },
+  ]}
+/>
+<Select
+  value={actif}
+  onValueChange={(value: string) => setActif(value as ActifFilter)}
+  items={[
+    { label: 'Actifs', value: 'true' },
+    { label: 'Inactifs', value: 'false' },
+    { label: 'Tous', value: 'all' },
+  ]}
+/>
 
-            <select
-              value={actif}
-              onChange={(e) => setActif(e.target.value as ActifFilter)}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-[#0b3d4f]"
-            >
-              <option value="true">Actifs</option>
-              <option value="false">Inactifs</option>
-              <option value="all">Tous</option>
-            </select>
-
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-            >
-              <RefreshCcw size={17} />
-              Réinitialiser
-            </button>
+            
           </div>
         </div>
 

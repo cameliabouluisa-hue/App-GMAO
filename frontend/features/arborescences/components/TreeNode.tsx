@@ -1,98 +1,92 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ChevronRight, FolderTree, HardDrive } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, Package, Wrench } from 'lucide-react';
+import { useState } from 'react';
+
 import { ArborescenceNode } from '../types/arborescence.types';
 
 type Props = {
   node: ArborescenceNode;
-  level?: number;
+  level: number;
 };
 
-export default function TreeNode({ node, level = 0 }: Props) {
+export default function TreeNode({ node, level }: Props) {
   const [open, setOpen] = useState(true);
+  const hasChildren = node.children && node.children.length > 0;
 
-  const hasChildren = node.children.length > 0;
+  const isMateriel = node.type === 'MATERIEL';
+  const isTechnique = node.typePoint === 'TECHNIQUE';
 
-  const leftPadding = useMemo(() => {
-    return `${level * 22}px`;
-  }, [level]);
+  const icon = isMateriel ? (
+    <Package size={18} />
+  ) : isTechnique ? (
+    <Wrench size={18} />
+  ) : (
+    <MapPin size={18} />
+  );
 
-  const isPointStructure = node.type === 'POINT_STRUCTURE';
+  const badgeLabel = isMateriel
+    ? 'Matériel'
+    : isTechnique
+      ? 'Technique'
+      : 'Géographique';
+
+  const badgeClass = isMateriel
+    ? 'bg-purple-50 text-purple-700'
+    : isTechnique
+      ? 'bg-orange-50 text-orange-700'
+      : 'bg-blue-50 text-blue-700';
 
   return (
-    <div className="select-none">
+    <div>
       <div
-        className="group relative flex min-h-[64px] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-        style={{ marginLeft: leftPadding }}
+        className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-[#064e5f]/30 hover:bg-slate-50"
+        style={{ marginLeft: level * 24 }}
       >
-        <div className="flex w-7 items-center justify-center">
-          {hasChildren ? (
-            <button
-              type="button"
-              onClick={() => setOpen((prev) => !prev)}
-              className="rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-            >
-              <ChevronRight
-                className={`h-4 w-4 transition-transform ${
-                  open ? 'rotate-90' : ''
-                }`}
-              />
-            </button>
-          ) : (
-            <span className="h-4 w-4" />
-          )}
-        </div>
-
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-            isPointStructure
-              ? 'bg-blue-50 text-blue-600'
-              : 'bg-emerald-50 text-emerald-600'
-          }`}
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
         >
-          {isPointStructure ? (
-            <FolderTree className="h-5 w-5" />
+          {hasChildren ? (
+            open ? <ChevronDown size={18} /> : <ChevronRight size={18} />
           ) : (
-            <HardDrive className="h-5 w-5" />
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
           )}
+        </button>
+
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-50 text-[#064e5f]">
+          {icon}
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900 md:text-base">
-            {node.libelle ?? 'Sans libellé'}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
-              Code : {node.code ?? '—'}
+          <div className="flex flex-wrap items-center gap-2">
+           
+
+            <span className="truncate text-sm font-black text-slate-950">
+              {node.libelle ?? 'Sans libellé'}
             </span>
 
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
-              {node.type}
+            <span className={`rounded-xl px-3 py-1 text-xs font-black ${badgeClass}`}>
+              {badgeLabel}
             </span>
-
-            {node.typePoint ? (
-              <span
-                className={`rounded-full px-2.5 py-1 font-medium ${
-                  node.typePoint === 'GEOGRAPHIQUE'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}
-              >
-                {node.typePoint}
-              </span>
-            ) : null}
           </div>
         </div>
+
+        {hasChildren && (
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            {node.children.length}
+          </span>
+        )}
       </div>
 
-      {open && hasChildren ? (
-        <div className="relative mt-3 space-y-3 before:absolute before:bottom-0 before:left-3 before:top-0 before:w-px before:bg-slate-200">
+      {open && hasChildren && (
+        <div className="mt-2 space-y-2">
           {node.children.map((child) => (
             <TreeNode key={child.key} node={child} level={level + 1} />
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
-}
+} 

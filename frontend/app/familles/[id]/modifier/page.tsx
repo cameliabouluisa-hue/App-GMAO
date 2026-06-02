@@ -3,12 +3,15 @@
 import { ChevronLeft } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 
-import { FamilleForm, useEditFamilleForm } from '@/features/familles';
+import FamilleForm from '@/features/familles/components/famille-form';
+import { useEditFamilleForm } from '@/features/familles/hooks/useEditFamilleForm';
 
 export default function ModifierFamillePage() {
   const router = useRouter();
   const params = useParams();
-  const id = String(params.id);
+
+  const idParam = params?.id;
+  const id = Array.isArray(idParam) ? idParam[0] : String(idParam ?? '');
 
   const {
     values,
@@ -18,84 +21,64 @@ export default function ModifierFamillePage() {
     saving,
     error,
     success,
+
     setCode,
     setLibelle,
     setParentId,
+    setActif,
+    setTypeFamille,
+    setNatureAchat,
+
     handleSubmit,
   } = useEditFamilleForm({
     familleId: id,
     onSuccess: () => router.push(`/familles/${id}`),
   });
 
-  function handleBack() {
-    router.push(`/familles/${id}`);
-  }
+  const handleBack = () => {
+    router.push(`/familles`);
+  };
 
   if (loading) {
-    return <div className="p-5">Chargement...</div>;
-  }
-
-  return (
-    <div
-      className="min-h-full p-5"
-      style={{
-        background: 'linear-gradient(180deg, #F7FAFC 0%, #EEF4F7 100%)',
-      }}
-    >
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p
-              className="text-[10px] font-semibold uppercase tracking-[0.26em]"
-              style={{ color: '#6E8CA0' }}
-            >
-              BMT · Module équipement
-            </p>
-
-            <div className="mt-2 flex items-center gap-3">
-              <h1
-                className="text-[28px] font-bold leading-tight"
-                style={{ color: '#183B56' }}
-              >
-                Modifier famille
-              </h1>
-
-              <span
-                className="rounded-full px-3 py-1 text-[12px] font-medium"
-                style={{
-                  backgroundColor: '#EDF3F7',
-                  color: '#48667B',
-                  border: '1px solid #E2EAF0',
-                }}
-              >
-                Mise à jour
-              </span>
-            </div>
-
-            <p className="mt-2 text-[14px]" style={{ color: '#6B8596' }}>
-              Modifiez les informations de la famille sélectionnée.
-            </p>
-          </div>
-
+    return (
+      <main className="min-h-full bg-[#F3F6FA] p-7">
+        <div className="mx-auto max-w-[1500px] space-y-7">
           <button
             type="button"
             onClick={handleBack}
-            className="inline-flex h-[42px] items-center gap-2 rounded-[12px] border px-4 text-[13px] font-medium transition hover:bg-slate-50"
-            style={{
-              borderColor: '#E6EDF2',
-              backgroundColor: '#FFFFFF',
-              color: '#183B56',
-            }}
+            className="inline-flex items-center gap-2 text-sm font-extrabold text-slate-500 transition hover:text-slate-900"
           >
-            <ChevronLeft size={16} />
-            <span>Retour</span>
+            <ChevronLeft size={20} />
+            Retour
           </button>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="h-8 w-72 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="mt-5 h-5 w-96 animate-pulse rounded-2xl bg-slate-100" />
+          </div>
+
+          <div className="h-[500px] animate-pulse rounded-[28px] border border-slate-200 bg-white shadow-sm" />
         </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-full bg-[#F3F6FA] p-7">
+      <div className="mx-auto max-w-[1500px] space-y-7">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 text-sm font-extrabold text-slate-500 transition hover:text-slate-900"
+        >
+          <ChevronLeft size={20} />
+          Retour
+        </button>
 
         <FamilleForm
-          title="Informations de la famille"
-          subtitle="Modifiez les champs nécessaires avant l’enregistrement."
-          badge="Mise à jour"
+          title="Modifier la famille"
+    
+        
           submitLabel="Enregistrer"
           values={values}
           familles={familles}
@@ -106,10 +89,13 @@ export default function ModifierFamillePage() {
           onCodeChange={setCode}
           onLibelleChange={setLibelle}
           onParentChange={setParentId}
+          onActifChange={setActif}
+          onTypeFamilleChange={setTypeFamille}
+          onNatureAchatChange={setNatureAchat}
           onSubmit={handleSubmit}
           onCancel={handleBack}
         />
       </div>
-    </div>
+    </main>
   );
 }

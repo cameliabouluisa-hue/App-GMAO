@@ -8,7 +8,10 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+
 import { FamilleService } from './famille.service';
+import { CreateFamilleDto } from './dto/create-famille.dto';
+import { UpdateFamilleDto } from './dto/update-famille.dto';
 
 @Controller('familles')
 export class FamilleController {
@@ -25,28 +28,16 @@ export class FamilleController {
   }
 
   @Post()
-  create(
-    @Body()
-    body: { code?: string; libelle?: string; parent_id?: number | null },
-  ) {
-    return this.familleService.create({
-      code: body.code,
-      libelle: body.libelle,
-      parent_id: body.parent_id ?? null,
-    });
+  create(@Body() body: CreateFamilleDto) {
+    return this.familleService.create(body);
   }
 
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body()
-    body: { code?: string; libelle?: string; parent_id?: number | null },
+    @Body() body: UpdateFamilleDto,
   ) {
-    return this.familleService.update(id, {
-      code: body.code,
-      libelle: body.libelle,
-      parent_id: body.parent_id ?? null,
-    });
+    return this.familleService.update(id, body);
   }
 
   @Delete(':id')

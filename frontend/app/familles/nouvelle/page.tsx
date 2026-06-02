@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 import { FamilleForm, useFamilleForm } from '@/features/familles';
@@ -15,12 +15,21 @@ export default function NouvelleFamillePage() {
     saving,
     error,
     success,
+
     setCode,
     setLibelle,
     setParentId,
+    setEtat,
+    setActif,
+    setNatureAchat,
+    setTypeFamille,
+
     handleSubmit,
   } = useFamilleForm({
-    onSuccess: () => router.push('/familles'),
+    onSuccess: () => {
+      router.push('/familles');
+      router.refresh();
+    },
   });
 
   function handleBack() {
@@ -28,67 +37,19 @@ export default function NouvelleFamillePage() {
   }
 
   return (
-    <div
-      className="min-h-full p-5"
-      style={{
-        background: 'linear-gradient(180deg, #F7FAFC 0%, #EEF4F7 100%)',
-      }}
-    >
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p
-              className="text-[10px] font-semibold uppercase tracking-[0.26em]"
-              style={{ color: '#6E8CA0' }}
-            >
-              BMT · Module équipement
-            </p>
-
-            <div className="mt-2 flex items-center gap-3">
-              <h1
-                className="text-[28px] font-bold leading-tight"
-                style={{ color: '#183B56' }}
-              >
-                Nouvelle famille
-              </h1>
-
-              <span
-                className="rounded-full px-3 py-1 text-[12px] font-medium"
-                style={{
-                  backgroundColor: '#EDF3F7',
-                  color: '#48667B',
-                  border: '1px solid #E2EAF0',
-                }}
-              >
-                Formulaire d’ajout
-              </span>
-            </div>
-
-            <p className="mt-2 text-[14px]" style={{ color: '#6B8596' }}>
-              Créez une nouvelle famille et rattachez-la à une famille parente si
-              nécessaire.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleBack}
-            className="inline-flex h-[42px] items-center gap-2 rounded-[12px] border px-4 text-[13px] font-medium transition hover:bg-slate-50"
-            style={{
-              borderColor: '#E6EDF2',
-              backgroundColor: '#FFFFFF',
-              color: '#183B56',
-            }}
-          >
-            <ChevronLeft size={16} />
-            <span>Retour</span>
-          </button>
-        </div>
+    <main className="min-h-screen bg-[#f5f7fb] px-5 py-6 text-slate-950">
+      <div className="mx-auto max-w-[1280px] pb-24">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          Retour
+        </button>
 
         <FamilleForm
-          title="Informations de la famille"
-          subtitle="Renseignez les champs nécessaires avant l’enregistrement."
-          badge="Formulaire d’ajout"
+          title="Nouvelle famille"
           submitLabel="Enregistrer"
           values={values}
           familles={familles}
@@ -99,10 +60,13 @@ export default function NouvelleFamillePage() {
           onCodeChange={setCode}
           onLibelleChange={setLibelle}
           onParentChange={setParentId}
+          onActifChange={setActif}
+          onNatureAchatChange={setNatureAchat}
+          onTypeFamilleChange={setTypeFamille}
           onSubmit={handleSubmit}
           onCancel={handleBack}
         />
       </div>
-    </div>
+    </main>
   );
 }

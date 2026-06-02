@@ -36,8 +36,7 @@ const menuStructure: MenuModule[] = [
     href: '/materiels',
     icon: Wrench,
     submenu: [
-      { label: 'Arborescence géographique', href: '/arborescences/geographique' },
-      { label: 'Arborescence technique', href: '/arborescences/technique' },
+      { label: 'Parc Dequipement' , href: '/arborescences' },
       { label: 'Familles', href: '/familles' },
       { label: 'Modèles', href: '/modeles' },
       { label: 'Matériels', href: '/materiels' },

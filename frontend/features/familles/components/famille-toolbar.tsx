@@ -1,6 +1,4 @@
-
-
-import { ChevronDown, Download, Plus, Search, X } from 'lucide-react';
+import { ChevronDown, Download, Search, X } from 'lucide-react';
 import type { FamilleFilterType } from '@/features/familles/types/famille';
 
 type FamilleToolbarProps = {
@@ -20,92 +18,57 @@ export default function FamilleToolbar({
   onClearSearch,
   onFilterChange,
   onExport,
-  onCreate,
 }: FamilleToolbarProps) {
   return (
-    <div
-      className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
-      style={{
-        borderColor: '#EEF3F6',
-        backgroundColor: '#FFFFFF',
-      }}
-    >
-      <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
-        <div
-          className="flex h-[42px] w-full items-center gap-2 rounded-[12px] border px-3 lg:max-w-[320px]"
-          style={{
-            borderColor: '#E6EDF2',
-            backgroundColor: '#FFFFFF',
-          }}
-        >
-          <Search size={15} color="#8AA0AF" />
-          <input
-            type="text"
-            placeholder="Rechercher"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-transparent text-[13px] outline-none placeholder:text-slate-400"
-            style={{ color: '#183B56' }}
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={onClearSearch}
-              className="flex h-6 w-6 items-center justify-center rounded-full transition hover:bg-slate-100"
-              title="Effacer"
-            >
-              <X size={14} color="#91A3B0" />
-            </button>
-          )}
-        </div>
+    <div className="grid gap-3 lg:grid-cols-[1fr_290px_auto]">
+      <div className="relative">
+        <Search
+          size={20}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+        />
 
-        <div
-          className="flex h-[42px] min-w-[220px] items-center rounded-[12px] border px-3"
-          style={{
-            borderColor: '#E6EDF2',
-            backgroundColor: '#FFFFFF',
-          }}
-        >
-          <select
-            value={filterType}
-            onChange={(e) => onFilterChange(e.target.value as FamilleFilterType)}
-            className="w-full appearance-none bg-transparent text-[13px] font-medium outline-none"
-            style={{ color: '#183B56' }}
+        <input
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Rechercher par code ou libellé..."
+          className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-10 text-sm font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#06465a] focus:bg-white"
+        />
+
+        {search && (
+          <button
+            type="button"
+            onClick={onClearSearch}
+            className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"
           >
-            <option value="all">Toutes les familles</option>
-            <option value="parents">Familles parentes</option>
-            <option value="withModels">Familles avec modèles</option>
-          </select>
-          <ChevronDown size={15} color="#91A3B0" />
-        </div>
+            <X size={15} />
+          </button>
+        )}
+      </div>
 
-        <button
-          type="button"
-          onClick={onExport}
-          className="inline-flex h-[42px] items-center gap-2 rounded-[12px] border px-4 text-[13px] font-medium transition hover:opacity-95"
-          style={{
-            borderColor: '#E6EDF2',
-            backgroundColor: '#FFFFFF',
-            color: '#183B56',
-          }}
+      <div className="relative">
+        <select
+          value={filterType}
+          onChange={(e) => onFilterChange(e.target.value as FamilleFilterType)}
+          className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm font-bold text-slate-950 outline-none transition focus:border-[#06465a] focus:bg-white"
         >
-          <Download size={14} />
-          <span>Exporter</span>
-        </button>
+          <option value="all">Toutes les familles</option>
+          <option value="parents">Familles parentes</option>
+          <option value="withModels">Familles avec modèles</option>
+        </select>
+
+        <ChevronDown
+          size={18}
+          className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"
+        />
       </div>
 
       <button
         type="button"
-        onClick={onCreate}
-        className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[12px] border transition hover:bg-slate-50"
-        style={{
-          borderColor: '#E6EDF2',
-          backgroundColor: '#FFFFFF',
-          color: '#183B56',
-        }}
-        title="Nouvelle famille"
+        onClick={onExport}
+        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
       >
-        <Plus size={18} />
+        <Download size={18} />
+        Exporter
       </button>
     </div>
   );

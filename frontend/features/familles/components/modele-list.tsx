@@ -1,6 +1,4 @@
-
-
-import { Eye, Pencil, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Trash2, Box } from 'lucide-react';
 import type { Modele } from '@/types/modele';
 
 type ModeleListProps = {
@@ -19,123 +17,70 @@ export default function ModeleList({
   onDeleteModele,
 }: ModeleListProps) {
   return (
-    <div
-      className="border-t px-5 py-3"
-      style={{
-        borderColor: '#F4F7F9',
-        backgroundColor: '#FCFDFE',
-      }}
-    >
+    <div className="bg-slate-50 px-5 py-4">
       <div
         className="mb-3 flex items-center gap-2"
-        style={{ paddingLeft: `${level * 18 + 38}px` }}
+        style={{ paddingLeft: `${level * 24 + 48}px` }}
       >
-        <span
-          className="text-[11px] font-semibold uppercase tracking-[0.08em]"
-          style={{ color: '#7B93A4' }}
-        >
+        <span className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
           Modèles
         </span>
 
-        <span
-          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-          style={{
-            backgroundColor: '#EEF4F7',
-            color: '#48667B',
-          }}
-        >
+        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-black text-slate-600">
           {modeles.length}
         </span>
       </div>
 
       <div
-        className="flex flex-col gap-2"
-        style={{ paddingLeft: `${level * 18 + 38}px` }}
+        className="space-y-2"
+        style={{ paddingLeft: `${level * 24 + 48}px` }}
       >
         {modeles.map((modele) => (
           <div
             key={modele.idModele}
-            className="flex items-center justify-between gap-3 rounded-[12px] border px-3 py-2.5 text-[12px]"
-            style={{
-              borderColor: '#E8EEF2',
-              backgroundColor: '#FFFFFF',
-              color: '#48667B',
-              width: '100%',
-              maxWidth: '760px',
-            }}
+            className="flex max-w-4xl items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
           >
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium"
-                style={{
-                  backgroundColor: '#EFF4F7',
-                  color: '#48667B',
-                }}
-              >
-                ◇
-              </span>
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-purple-50 text-purple-700">
+                <Box size={18} />
+              </div>
 
-              <span
-                className="truncate text-[13px] font-medium"
-                style={{ color: '#183B56' }}
-              >
-                {modele.libelle || 'Sans libellé'}
-              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black text-slate-900">
+                  {modele.libelle || 'Sans libellé'}
+                </p>
 
-              {modele.code && (
-                <span
-                  className="rounded-full px-2 py-0.5 text-[11px]"
-                  style={{
-                    backgroundColor: '#F3F7F9',
-                    color: '#6B8596',
-                  }}
-                >
-                  {modele.code}
-                </span>
-              )}
+                {modele.code && (
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {modele.code}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={() => onViewModele(modele.idModele)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-slate-50"
-                style={{
-                  borderColor: '#E5EDF2',
-                  backgroundColor: '#FFFFFF',
-                  color: '#6B8596',
-                }}
-                title="Voir le modèle"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
               >
-                <Eye size={15} />
+                <Eye size={17} />
               </button>
 
               <button
                 type="button"
                 onClick={() => onEditModele(modele.idModele)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-slate-50"
-                style={{
-                  borderColor: '#E5EDF2',
-                  backgroundColor: '#FFFFFF',
-                  color: '#6B8596',
-                }}
-                title="Modifier le modèle"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
               >
-                <Pencil size={15} />
+                <Pencil size={17} />
               </button>
 
               <button
                 type="button"
                 onClick={() => onDeleteModele(modele.idModele)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-red-50"
-                style={{
-                  borderColor: '#F0D7D7',
-                  backgroundColor: '#FFF8F8',
-                  color: '#B75B5B',
-                }}
-                title="Supprimer le modèle"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100"
               >
-                <Trash2 size={15} />
+                <Trash2 size={17} />
               </button>
             </div>
           </div>

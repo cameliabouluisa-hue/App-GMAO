@@ -9,15 +9,15 @@ datasource db {
 }
 
 model affectation_technicien {
-  idAffectation   Int           @id @default(autoincrement())
+  idAffectation   Int       @id @default(autoincrement())
   tempsTravail    Int?
   idTechnicien    Int?
   idIntervention  Int?
-  dateAffectation DateTime?     @default(now()) @db.DateTime(0)
-  affectePar      String?       @db.VarChar(100)
+  dateAffectation DateTime? @default(now()) @db.DateTime(0)
+  affectePar      String?   @db.VarChar(100)
 
-  technicien      technicien?   @relation(fields: [idTechnicien], references: [idTechnicien], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_1")
-  intervention    intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_2")
+  technicien   technicien?   @relation(fields: [idTechnicien], references: [idTechnicien], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_1")
+  intervention intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_2")
 
   @@index([idIntervention], map: "idIntervention")
   @@index([idTechnicien], map: "idTechnicien")
@@ -46,17 +46,17 @@ model article {
   uniteArticle unite_article? @relation(fields: [idUniteArticle], references: [idUniteArticle], onDelete: SetNull, onUpdate: Restrict)
   modele       modele?        @relation(fields: [idModele], references: [idModele], onDelete: SetNull, onUpdate: Restrict)
 
-  consommations               consommation[]
-  materiels                    materiel[]
-  etatMateriels                etat_materiel[]
-  stocks                       stock_article_magasin[]
-  mouvementsStock              mouvement_stock[]
-  lignesEntreeStock            entree_stock_ligne[]
-  lignesSortieStock            sortie_stock_ligne[]
-  lignesInventairePrepare      LigneInventairePrepare[]
-  reservationsStock            reservation_stock[]
-  lignesDemandesTransfert      ligne_demande_transfert_stock[]
-  lignes_reapprovisionnement   ligne_reapprovisionnement[] @relation("ArticleLignesReapprovisionnement")
+  consommations              consommation[]
+  materiels                  materiel[]
+  etatMateriels              etat_materiel[]
+  stocks                     stock_article_magasin[]
+  mouvementsStock            mouvement_stock[]
+  lignesEntreeStock          entree_stock_ligne[]
+  lignesSortieStock          sortie_stock_ligne[]
+  lignesInventairePrepare    LigneInventairePrepare[]
+  reservationsStock          reservation_stock[]
+  lignesDemandesTransfert    ligne_demande_transfert_stock[]
+  lignes_reapprovisionnement ligne_reapprovisionnement[]     @relation("ArticleLignesReapprovisionnement")
 
   @@index([idFamille])
   @@index([idUniteArticle])
@@ -106,18 +106,18 @@ model demande_intervention {
 }
 
 model etat_materiel {
-  idEtat    Int      @id @default(autoincrement())
-  libelle   String?  @db.VarChar(100)
+  idEtat    Int     @id @default(autoincrement())
+  libelle   String? @db.VarChar(100)
   idArticle Int?
 
-  article   article? @relation(fields: [idArticle], references: [idArticle])
-  materiel  materiel[]
+  article  article?   @relation(fields: [idArticle], references: [idArticle])
+  materiel materiel[]
 
   @@index([idArticle])
 }
 
 model etat_modele {
-  idEtat  Int     @id 
+  idEtat  Int     @id
   libelle String? @db.VarChar(100)
 
   modele modele[]
@@ -129,15 +129,35 @@ model famille {
   libelle   String? @db.VarChar(100)
   parent_id Int?
 
-  famille       famille?  @relation("familleTofamille", fields: [parent_id], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "famille_ibfk_parent")
+  actif       Boolean              @default(true)
+  natureAchat NatureAchatFamille?
+  typeFamille TypeFamille          @default(EQUIPEMENT)
+
+  famille      famille?  @relation("familleTofamille", fields: [parent_id], references: [idFamille])
   other_famille famille[] @relation("familleTofamille")
 
-  modele                       modele[]
-  articles                     article[]
-  gamme_operation              gamme_operation[]            @relation("GammeOperationFamille")
-  plan_preventif_declencheur   plan_preventif_declencheur[]
+  modele                      modele[]
+  articles                    article[]
+  gamme_operation             gamme_operation[]             @relation("GammeOperationFamille")
+  plan_preventif_declencheur  plan_preventif_declencheur[]
 
   @@index([parent_id], map: "famille_ibfk_parent")
+}
+
+enum TypeFamille {
+  EQUIPEMENT
+  ARTICLE
+  MIXTE
+}
+
+enum NatureAchatFamille {
+  ELECTRIQUE
+  MECANIQUE
+  HYDRAULIQUE
+  PNEUMATIQUE
+  AUTOMATISME
+  INFORMATIQUE
+  GENERAL
 }
 
 model gamme {
@@ -235,26 +255,26 @@ model intervention {
 }
 
 model materiel {
-  idMateriel          Int       @id @default(autoincrement())
-  code                String?   @unique @db.VarChar(50)
-  numeroSerie         String?   @unique @db.VarChar(100)
-  dateMiseService     DateTime? @db.Date
+  idMateriel      Int       @id @default(autoincrement())
+  code            String?   @unique @db.VarChar(50)
+  numeroSerie     String?   @unique @db.VarChar(100)
+  dateMiseService DateTime? @db.Date
 
-  idArticle           Int?
-  idModele            Int?
-  idEtat              Int?
-  idType              Int?
-  idPointStructure    Int?
-  idLigneEntreeStock  Int?
+  idArticle          Int?
+  idModele           Int?
+  idEtat             Int?
+  idType             Int?
+  idPointStructure   Int?
+  idLigneEntreeStock Int?
 
   actif Boolean? @default(true)
 
-  article           article?             @relation(fields: [idArticle], references: [idArticle], onDelete: SetNull, onUpdate: Restrict)
-  modele            modele?              @relation(fields: [idModele], references: [idModele], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_1")
-  etat_materiel     etat_materiel?       @relation(fields: [idEtat], references: [idEtat], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_2")
-  type_materiel     type_materiel?       @relation(fields: [idType], references: [idType], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_3")
-  point_structure   point_structure?     @relation("PointStructureMateriels", fields: [idPointStructure], references: [idPoint], onDelete: SetNull, onUpdate: Restrict)
-  entreeStockLigne  entree_stock_ligne?  @relation(fields: [idLigneEntreeStock], references: [idLigneEntreeStock], onDelete: SetNull)
+  article          article?            @relation(fields: [idArticle], references: [idArticle], onDelete: SetNull, onUpdate: Restrict)
+  modele           modele?             @relation(fields: [idModele], references: [idModele], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_1")
+  etat_materiel    etat_materiel?      @relation(fields: [idEtat], references: [idEtat], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_2")
+  type_materiel    type_materiel?      @relation(fields: [idType], references: [idType], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_3")
+  point_structure  point_structure?    @relation("PointStructureMateriels", fields: [idPointStructure], references: [idPoint], onDelete: SetNull, onUpdate: Restrict)
+  entreeStockLigne entree_stock_ligne? @relation(fields: [idLigneEntreeStock], references: [idLigneEntreeStock], onDelete: SetNull)
 
   demande_intervention               demande_intervention[]
   intervention                       intervention[]
@@ -282,17 +302,17 @@ model magasin {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  inventairesPrepares             InventairePrepare[]
-  stocks                          stock_article_magasin[]
-  mouvementsSource                mouvement_stock[]       @relation("MagasinSource")
-  mouvementsDest                  mouvement_stock[]       @relation("MagasinDestination")
-  emplacements                    emplacement_magasin[]
-  lignesEntreeStock               entree_stock_ligne[]
-  lignesSortieStock               sortie_stock_ligne[]
-  reservationsStock               reservation_stock[]
-  demandesTransfertSource         demande_transfert_stock[] @relation("DemandeTransfertSource")
-  demandesTransfertDestination    demande_transfert_stock[] @relation("DemandeTransfertDestination")
-  demandes_reapprovisionnement    demande_reapprovisionnement[] @relation("MagasinDemandesReapprovisionnement")
+  inventairesPrepares          InventairePrepare[]
+  stocks                       stock_article_magasin[]
+  mouvementsSource             mouvement_stock[]             @relation("MagasinSource")
+  mouvementsDest               mouvement_stock[]             @relation("MagasinDestination")
+  emplacements                 emplacement_magasin[]
+  lignesEntreeStock            entree_stock_ligne[]
+  lignesSortieStock            sortie_stock_ligne[]
+  reservationsStock            reservation_stock[]
+  demandesTransfertSource      demande_transfert_stock[]     @relation("DemandeTransfertSource")
+  demandesTransfertDestination demande_transfert_stock[]     @relation("DemandeTransfertDestination")
+  demandes_reapprovisionnement demande_reapprovisionnement[] @relation("MagasinDemandesReapprovisionnement")
 }
 
 model stock_article_magasin {
@@ -355,25 +375,25 @@ model modele {
   famille     famille?    @relation(fields: [idFamille], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "modele_ibfk_1")
   etat_modele etat_modele @relation(fields: [idEtat], references: [idEtat], onUpdate: Restrict, map: "modele_ibfk_2")
 
-  gamme                       gamme[]
-  gamme_operation             gamme_operation[] @relation("GammeOperationModele")
-  materiel                    materiel[]
-  articles                    article[]
-  plan_preventif_declencheur  plan_preventif_declencheur[]
-  plan_preventif_predefini    plan_preventif_predefini[]
-  ppp_declencheur             ppp_declencheur[]
+  gamme                      gamme[]
+  gamme_operation            gamme_operation[]            @relation("GammeOperationModele")
+  materiel                   materiel[]
+  articles                   article[]
+  plan_preventif_declencheur plan_preventif_declencheur[]
+  plan_preventif_predefini   plan_preventif_predefini[]
+  ppp_declencheur            ppp_declencheur[]
 
   @@index([idFamille], map: "idFamille")
   @@index([idEtat], map: "modele_ibfk_2")
 }
 
 model operation_intervention {
-  idOperation            Int     @id @default(autoincrement())
+  idOperation            Int      @id @default(autoincrement())
   ordre                  Int?
-  libelle                String? @db.VarChar(100)
+  libelle                String?  @db.VarChar(100)
   tempsPasse             Int?
   idIntervention         Int?
-  description            String? @db.Text
+  description            String?  @db.Text
   idGammeOperationSource Int?
   obligatoire            Boolean? @default(false)
 
@@ -385,29 +405,29 @@ model operation_intervention {
 }
 
 model point_structure {
-  idPoint     Int      @id @default(autoincrement())
-  code        String?  @unique @db.VarChar(50)
-  libelle     String?  @db.VarChar(100)
-  description String?  @db.Text
-  typePoint   String   @db.VarChar(30)
-  actif       Boolean? @default(true)
-  etat                    String   @default("VALIDE")
-categorie               String?
-responsable             String?
-organisation            String?
-centreCout              String?
+  idPoint      Int      @id @default(autoincrement())
+  code         String?  @unique @db.VarChar(50)
+  libelle      String?  @db.VarChar(100)
+  description  String?  @db.Text
+  typePoint    String   @db.VarChar(30)
+  actif        Boolean? @default(true)
+  etat         String   @default("VALIDE")
+  categorie    String?
+  responsable  String?
+  organisation String?
+  centreCout   String?
 
-interventionsAutorisees Boolean  @default(true)
-criticite               String   @default("MOYENNE")
-observationMaintenance  String?
+  interventionsAutorisees Boolean @default(true)
+  criticite               String  @default("MOYENNE")
+  observationMaintenance  String?
 
-zoneSensible            Boolean  @default(false)
-accesRestreint          Boolean  @default(false)
-epiObligatoire          Boolean  @default(false)
-consigneSecurite        String?
+  zoneSensible     Boolean @default(false)
+  accesRestreint   Boolean @default(false)
+  epiObligatoire   Boolean @default(false)
+  consigneSecurite String?
 
-  materiels                         materiel[]                         @relation("PointStructureMateriels")
-  gamme_operation                    gamme_operation[]                 @relation("GammeOperationPointStructure")
+  materiels                          materiel[]                           @relation("PointStructureMateriels")
+  gamme_operation                    gamme_operation[]                    @relation("GammeOperationPointStructure")
   historique_declenchement_preventif historique_declenchement_preventif[]
   plan_preventif                     plan_preventif[]
   plan_preventif_declencheur         plan_preventif_declencheur[]
@@ -421,7 +441,7 @@ model technicien {
   roleEquipe   String? @default("TECHNICIEN") @db.VarChar(30)
 
   affectation_technicien affectation_technicien[]
-  equipe_maintenance     equipe_maintenance? @relation(fields: [idEquipe], references: [idEquipe], onDelete: Restrict, onUpdate: Restrict, map: "technicien_ibfk_equipe")
+  equipe_maintenance     equipe_maintenance?      @relation(fields: [idEquipe], references: [idEquipe], onDelete: Restrict, onUpdate: Restrict, map: "technicien_ibfk_equipe")
 
   @@index([idEquipe], map: "technicien_ibfk_equipe")
 }
@@ -491,10 +511,10 @@ model entree_stock_ligne {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  entreeStock entree_stock          @relation(fields: [idEntreeStock], references: [idEntreeStock], onDelete: Cascade)
-  article     article               @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
-  magasin     magasin               @relation(fields: [idMagasin], references: [idMagasin], onDelete: Restrict)
-  emplacement emplacement_magasin?  @relation(fields: [idEmplacement], references: [idEmplacement], onDelete: SetNull)
+  entreeStock entree_stock         @relation(fields: [idEntreeStock], references: [idEntreeStock], onDelete: Cascade)
+  article     article              @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
+  magasin     magasin              @relation(fields: [idMagasin], references: [idMagasin], onDelete: Restrict)
+  emplacement emplacement_magasin? @relation(fields: [idEmplacement], references: [idEmplacement], onDelete: SetNull)
 
   materiels materiel[]
 
@@ -729,7 +749,7 @@ model ligne_reapprovisionnement {
   idLigneReapprovisionnement Int @id @default(autoincrement())
 
   idDemandeReapprovisionnement Int
-  demande                     demande_reapprovisionnement @relation(fields: [idDemandeReapprovisionnement], references: [idDemandeReapprovisionnement], onDelete: Cascade)
+  demande                      demande_reapprovisionnement @relation(fields: [idDemandeReapprovisionnement], references: [idDemandeReapprovisionnement], onDelete: Cascade)
 
   idArticle Int
   article   article @relation("ArticleLignesReapprovisionnement", fields: [idArticle], references: [idArticle])
@@ -754,39 +774,39 @@ model plan_preventif_predefini {
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
-  modele                  modele?             @relation(fields: [idModele], references: [idModele])
-  plan_preventif           plan_preventif[]
-  ppp_declencheur          ppp_declencheur[]
+  modele          modele?           @relation(fields: [idModele], references: [idModele])
+  plan_preventif  plan_preventif[]
+  ppp_declencheur ppp_declencheur[]
 
   @@index([idModele])
 }
 
 model ppp_declencheur {
-  idPppDeclencheur            Int      @id @default(autoincrement())
+  idPppDeclencheur            Int       @id @default(autoincrement())
   idPlanPreventifPredefini    Int
-  priorite                    Int?     @default(1)
-  etat                        String?  @db.VarChar(50)
-  typeDeclencheur             String   @db.VarChar(30)
+  priorite                    Int?      @default(1)
+  etat                        String?   @db.VarChar(50)
+  typeDeclencheur             String    @db.VarChar(30)
   idGamme                     Int
   idModele                    Int?
-  etatInterventionCible       String?  @db.VarChar(50)
+  etatInterventionCible       String?   @db.VarChar(50)
   horizonJours                Int?
   toleranceJours              Int?
-  actualisation               String?  @db.VarChar(30)
+  actualisation               String?   @db.VarChar(30)
   periodiciteValeur           Int?
-  periodiciteUnite            String?  @db.VarChar(20)
+  periodiciteUnite            String?   @db.VarChar(20)
   nombreJoursPremierLancement Int?
-  mesureCode                  String?  @db.VarChar(50)
-  seuilValeur                 Decimal? @db.Decimal(10, 2)
-  operateur                   String?  @db.VarChar(10)
-  symptomeCode                String?  @db.VarChar(50)
+  mesureCode                  String?   @db.VarChar(50)
+  seuilValeur                 Decimal?  @db.Decimal(10, 2)
+  operateur                   String?   @db.VarChar(10)
+  symptomeCode                String?   @db.VarChar(50)
   saisonnaliteDu              DateTime? @db.Date
   saisonnaliteAu              DateTime? @db.Date
-  actif                       Boolean? @default(true)
+  actif                       Boolean?  @default(true)
 
-  gamme                    gamme                        @relation(fields: [idGamme], references: [idGamme])
-  modele                   modele?                      @relation(fields: [idModele], references: [idModele])
-  plan_preventif_predefini plan_preventif_predefini     @relation(fields: [idPlanPreventifPredefini], references: [idPlanPreventifPredefini])
+  gamme                      gamme                        @relation(fields: [idGamme], references: [idGamme])
+  modele                     modele?                      @relation(fields: [idModele], references: [idModele])
+  plan_preventif_predefini   plan_preventif_predefini     @relation(fields: [idPlanPreventifPredefini], references: [idPlanPreventifPredefini])
   plan_preventif_declencheur plan_preventif_declencheur[]
 
   @@index([idPlanPreventifPredefini])
@@ -809,9 +829,9 @@ model plan_preventif {
   createdAt                      DateTime @default(now())
   updatedAt                      DateTime @updatedAt
 
-  materiel                 materiel?                    @relation(fields: [idMateriel], references: [idMateriel])
-  point_structure          point_structure?             @relation(fields: [idPointStructure], references: [idPoint])
-  plan_preventif_predefini plan_preventif_predefini?    @relation(fields: [idPlanPreventifPredefiniSource], references: [idPlanPreventifPredefini])
+  materiel                 materiel?                 @relation(fields: [idMateriel], references: [idMateriel])
+  point_structure          point_structure?          @relation(fields: [idPointStructure], references: [idPoint])
+  plan_preventif_predefini plan_preventif_predefini? @relation(fields: [idPlanPreventifPredefiniSource], references: [idPlanPreventifPredefini])
 
   intervention               intervention[]
   plan_preventif_declencheur plan_preventif_declencheur[]
@@ -822,46 +842,46 @@ model plan_preventif {
 }
 
 model plan_preventif_declencheur {
-  idPlanPreventifDeclencheur         Int       @id @default(autoincrement())
-  idPlanPreventif                    Int
-  idPppDeclencheurSource             Int?
-  priorite                           Int?      @default(1)
-  etat                               String?   @db.VarChar(50)
-  typeDeclencheur                    String    @db.VarChar(30)
-  idGamme                            Int
-  idPointStructure                   Int?
-  idMateriel                         Int?
-  idModele                           Int?
-  idFamille                          Int?
-  etatInterventionCible              String?   @db.VarChar(50)
-  actualisation                      String?   @db.VarChar(30)
-  horizonJours                       Int?
-  toleranceJours                     Int?
-  periodiciteValeur                  Int?
-  periodiciteUnite                   String?   @db.VarChar(20)
-  prochainLancementDate              DateTime? @db.Date
-  derniereRealisationDate            DateTime? @db.Date
-  derniereRealisationPrevueDate      DateTime? @db.Date
-  mesureCode                         String?   @db.VarChar(50)
-  operateur                          String?   @db.VarChar(10)
-  seuilValeur                        Decimal?  @db.Decimal(10, 2)
-  prochainLancementValeur            Decimal?  @db.Decimal(10, 2)
-  derniereRealisationValeur          Decimal?  @db.Decimal(10, 2)
-  derniereRealisationPrevueValeur    Decimal?  @db.Decimal(10, 2)
-  symptomeCode                       String?   @db.VarChar(50)
-  saisonnaliteDu                     DateTime? @db.Date
-  saisonnaliteAu                     DateTime? @db.Date
-  actif                              Boolean?  @default(true)
-  createdAt                          DateTime  @default(now())
-  updatedAt                          DateTime  @updatedAt
+  idPlanPreventifDeclencheur      Int       @id @default(autoincrement())
+  idPlanPreventif                 Int
+  idPppDeclencheurSource          Int?
+  priorite                        Int?      @default(1)
+  etat                            String?   @db.VarChar(50)
+  typeDeclencheur                 String    @db.VarChar(30)
+  idGamme                         Int
+  idPointStructure                Int?
+  idMateriel                      Int?
+  idModele                        Int?
+  idFamille                       Int?
+  etatInterventionCible           String?   @db.VarChar(50)
+  actualisation                   String?   @db.VarChar(30)
+  horizonJours                    Int?
+  toleranceJours                  Int?
+  periodiciteValeur               Int?
+  periodiciteUnite                String?   @db.VarChar(20)
+  prochainLancementDate           DateTime? @db.Date
+  derniereRealisationDate         DateTime? @db.Date
+  derniereRealisationPrevueDate   DateTime? @db.Date
+  mesureCode                      String?   @db.VarChar(50)
+  operateur                       String?   @db.VarChar(10)
+  seuilValeur                     Decimal?  @db.Decimal(10, 2)
+  prochainLancementValeur         Decimal?  @db.Decimal(10, 2)
+  derniereRealisationValeur       Decimal?  @db.Decimal(10, 2)
+  derniereRealisationPrevueValeur Decimal?  @db.Decimal(10, 2)
+  symptomeCode                    String?   @db.VarChar(50)
+  saisonnaliteDu                  DateTime? @db.Date
+  saisonnaliteAu                  DateTime? @db.Date
+  actif                           Boolean?  @default(true)
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
 
-  famille           famille?             @relation(fields: [idFamille], references: [idFamille])
-  gamme             gamme                @relation(fields: [idGamme], references: [idGamme])
-  materiel          materiel?            @relation(fields: [idMateriel], references: [idMateriel])
-  modele            modele?              @relation(fields: [idModele], references: [idModele])
-  plan_preventif    plan_preventif       @relation(fields: [idPlanPreventif], references: [idPlanPreventif])
-  point_structure   point_structure?     @relation(fields: [idPointStructure], references: [idPoint])
-  ppp_declencheur   ppp_declencheur?     @relation(fields: [idPppDeclencheurSource], references: [idPppDeclencheur])
+  famille         famille?         @relation(fields: [idFamille], references: [idFamille])
+  gamme           gamme            @relation(fields: [idGamme], references: [idGamme])
+  materiel        materiel?        @relation(fields: [idMateriel], references: [idMateriel])
+  modele          modele?          @relation(fields: [idModele], references: [idModele])
+  plan_preventif  plan_preventif   @relation(fields: [idPlanPreventif], references: [idPlanPreventif])
+  point_structure point_structure? @relation(fields: [idPointStructure], references: [idPoint])
+  ppp_declencheur ppp_declencheur? @relation(fields: [idPppDeclencheurSource], references: [idPppDeclencheur])
 
   historique_declenchement_preventif historique_declenchement_preventif[]
   intervention                       intervention[]

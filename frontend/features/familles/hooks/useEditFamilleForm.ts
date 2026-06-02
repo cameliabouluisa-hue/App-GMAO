@@ -1,15 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 
 import {
-  getFamilleById,
+  getFamille,
   getFamilles,
   updateFamille,
 } from '@/features/familles/services/famille.service';
+
 import type {
   FamilleApi,
   FamilleFormValues,
+  NatureAchatFamille,
+  TypeFamille,
 } from '@/features/familles/types/famille';
 
 type UseEditFamilleFormOptions = {
@@ -17,16 +21,20 @@ type UseEditFamilleFormOptions = {
   onSuccess?: () => void;
 };
 
+const initialValues: FamilleFormValues = {
+  code: '',
+  libelle: '',
+  parentId: '',
+  actif: true,
+  typeFamille: 'EQUIPEMENT',
+  natureAchat: '',
+};
+
 export function useEditFamilleForm({
   familleId,
   onSuccess,
 }: UseEditFamilleFormOptions) {
-  const [values, setValues] = useState<FamilleFormValues>({
-    code: '',
-    libelle: '',
-    parentId: '',
-  });
-
+  const [values, setValues] = useState<FamilleFormValues>(initialValues);
   const [familles, setFamilles] = useState<FamilleApi[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingParents, setLoadingParents] = useState(true);
@@ -35,30 +43,37 @@ export function useEditFamilleForm({
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function loadData() {
       try {
         setLoading(true);
         setLoadingParents(true);
         setError(null);
 
         const [famille, allFamilles] = await Promise.all([
-          getFamilleById(familleId),
+          getFamille(familleId),
           getFamilles(),
         ]);
 
         setValues({
-          code: famille.code || '',
-          libelle: famille.libelle || '',
+          code: famille.code ?? '',
+          libelle: famille.libelle ?? '',
           parentId: famille.parent_id ? String(famille.parent_id) : '',
+          actif: famille.actif ?? true,
+          typeFamille: famille.typeFamille ?? 'EQUIPEMENT',
+          natureAchat: famille.natureAchat ?? '',
         });
 
         setFamilles(
           allFamilles.filter(
-            (f) => String(f.idFamille) !== String(familleId),
+            (item) => item.idFamille !== Number(familleId),
           ),
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erreur inconnue');
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Impossible de charger la famille.',
+        );
       } finally {
         setLoading(false);
         setLoadingParents(false);
@@ -66,7 +81,7 @@ export function useEditFamilleForm({
     }
 
     if (familleId) {
-      fetchData();
+      loadData();
     }
   }, [familleId]);
 
@@ -82,12 +97,28 @@ export function useEditFamilleForm({
     setValues((prev) => ({ ...prev, parentId: value }));
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function setActif(value: boolean) {
+    setValues((prev) => ({ ...prev, actif: value }));
+  }
+
+  function setTypeFamille(value: TypeFamille) {
+    setValues((prev) => ({ ...prev, typeFamille: value }));
+  }
+
+  function setNatureAchat(value: NatureAchatFamille | '') {
+    setValues((prev) => ({ ...prev, natureAchat: value }));
+  }
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!values.code.trim() || !values.libelle.trim()) {
-      setError('Le code et le libellé sont obligatoires.');
-      setSuccess(null);
+    if (!values.code.trim()) {
+      setError('Le code famille est obligatoire.');
+      return;
+    }
+
+    if (!values.libelle.trim()) {
+      setError('Le libellé est obligatoire.');
       return;
     }
 
@@ -96,22 +127,19 @@ export function useEditFamilleForm({
       setError(null);
       setSuccess(null);
 
-      await updateFamille(familleId, {
-        code: values.code.trim(),
-        libelle: values.libelle.trim(),
-        parent_id: values.parentId ? Number(values.parentId) : null,
-      });
+      await updateFamille(familleId, values);
 
-      setSuccess('La famille a été modifiée avec succès.');
+      setSuccess('Famille modifiée avec succès.');
 
-      if (onSuccess) {
-        setTimeout(() => {
-          onSuccess();
-        }, 700);
-      }
+      setTimeout(() => {
+        onSuccess?.();
+      }, 500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-      setSuccess(null);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Impossible de modifier la famille.',
+      );
     } finally {
       setSaving(false);
     }
@@ -125,9 +153,14 @@ export function useEditFamilleForm({
     saving,
     error,
     success,
+
     setCode,
     setLibelle,
     setParentId,
+    setActif,
+    setTypeFamille,
+    setNatureAchat,
+
     handleSubmit,
   };
 }

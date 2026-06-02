@@ -1,102 +1,91 @@
-import { API_BASE_URL } from '@/lib/api';
-import type {
-  CreateFamillePayload,
-  FamilleApi,
-} from '@/features/familles/types/famille';
+import type { FamilleApi, FamilleFormValues } from '@/features/familles/types/famille';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+type FamillePayload = {
+  code?: string;
+  libelle?: string;
+  parent_id?: number | null;
+  actif?: boolean;
+  typeFamille?: string;
+  natureAchat?: string | null;
+};
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let message = 'Une erreur est survenue';
+
+    try {
+      const data = await response.json();
+      message = data?.message ?? message;
+    } catch {
+      message = response.statusText || message;
+    }
+
+    throw new Error(Array.isArray(message) ? message.join(', ') : message);
+  }
+
+  return response.json();
+}
+
+function toPayload(values: FamilleFormValues): FamillePayload {
+  return {
+    code: values.code.trim(),
+    libelle: values.libelle.trim(),
+    parent_id: values.parentId ? Number(values.parentId) : null,
+    actif: values.actif,
+    typeFamille: values.typeFamille,
+    natureAchat: values.natureAchat || null,
+  };
+}
 
 export async function getFamilles(): Promise<FamilleApi[]> {
-  const response = await fetch(`${API_BASE_URL}/familles`, {
+  const response = await fetch(`${API_URL}/familles`, {
     cache: 'no-store',
   });
 
-  if (!response.ok) {
-    throw new Error('Impossible de charger les familles.');
-  }
-
-  return response.json();
+  return handleResponse<FamilleApi[]>(response);
 }
 
-export async function getFamilleById(idFamille: number | string): Promise<FamilleApi> {
-  const response = await fetch(`${API_BASE_URL}/familles/${idFamille}`, {
+export async function getFamille(id: string | number): Promise<FamilleApi> {
+  const response = await fetch(`${API_URL}/familles/${id}`, {
     cache: 'no-store',
   });
 
-  if (!response.ok) {
-    throw new Error('Impossible de charger la famille.');
-  }
-
-  return response.json();
+  return handleResponse<FamilleApi>(response);
 }
 
-export async function createFamille(
-  payload: CreateFamillePayload,
-): Promise<FamilleApi> {
-  const response = await fetch(`${API_BASE_URL}/familles`, {
+export async function createFamille(values: FamilleFormValues): Promise<FamilleApi> {
+  const response = await fetch(`${API_URL}/familles`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPayload(values)),
   });
 
-  if (!response.ok) {
-    let message = "Impossible d'ajouter la famille.";
-
-    try {
-      const data = await response.json();
-      if (data?.message) {
-        message = Array.isArray(data.message)
-          ? data.message.join(', ')
-          : data.message;
-      }
-    } catch {
-      // on garde le message par défaut
-    }
-
-    throw new Error(message);
-  }
-
-  return response.json();
+  return handleResponse<FamilleApi>(response);
 }
 
 export async function updateFamille(
-  idFamille: number | string,
-  payload: CreateFamillePayload,
+  id: string | number,
+  values: FamilleFormValues,
 ): Promise<FamilleApi> {
-  const response = await fetch(`${API_BASE_URL}/familles/${idFamille}`, {
+  const response = await fetch(`${API_URL}/familles/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPayload(values)),
   });
 
-  if (!response.ok) {
-    let message = 'Impossible de modifier la famille.';
-
-    try {
-      const data = await response.json();
-      if (data?.message) {
-        message = Array.isArray(data.message)
-          ? data.message.join(', ')
-          : data.message;
-      }
-    } catch {
-      // on garde le message par défaut
-    }
-
-    throw new Error(message);
-  }
-
-  return response.json();
+  return handleResponse<FamilleApi>(response);
 }
 
-export async function deleteFamille(idFamille: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/familles/${idFamille}`, {
+export async function deleteFamille(id: string | number): Promise<FamilleApi> {
+  const response = await fetch(`${API_URL}/familles/${id}`, {
     method: 'DELETE',
   });
 
-  if (!response.ok) {
-    throw new Error('Impossible de supprimer la famille.');
-  }
+  return handleResponse<FamilleApi>(response);
 }
