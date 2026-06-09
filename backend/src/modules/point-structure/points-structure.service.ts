@@ -24,21 +24,20 @@ export class PointsStructureService {
   async findAll(query: FindPointStructureQueryDto = {}) {
     const where: any = {};
 
-    if (!query.actif || query.actif === 'true') {
-      where.actif = true;
-    }
+    
+if (query.typePoint) {
+  where.typePoint = query.typePoint;
+}
 
-    if (query.actif === 'false') {
-      where.actif = false;
-    }
+if (query.actif === 'true') {
+  where.actif = true;
+}
 
-    if (query.actif === 'all') {
-      delete where.actif;
-    }
+if (query.actif === 'false') {
+  where.actif = false;
+}
 
-    if (query.typePoint) {
-      where.typePoint = query.typePoint;
-    }
+    
 
     if (query.etat) {
       where.etat = query.etat;

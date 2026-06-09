@@ -1,4 +1,5 @@
 'use client';
+
 import { Select } from '@/components/select';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -37,8 +38,9 @@ export default function PointsStructurePage() {
   const [error, setError] = useState('');
 
   const [search, setSearch] = useState('');
-  const [typePoint, setTypePoint] = useState<TypePointStructureFilter>('TOUS');
-  const [actif, setActif] = useState<ActifFilter>('true');
+  const [typePoint, setTypePoint] =
+    useState<TypePointStructureFilter>('TOUS');
+  const [actif, setActif] = useState<ActifFilter>('all');
 
   const loadPoints = useCallback(async () => {
     try {
@@ -74,22 +76,20 @@ export default function PointsStructurePage() {
   const stats = useMemo(() => {
     return {
       total: points.length,
-      geographiques: points.filter((p) => p.typePoint === 'GEOGRAPHIQUE')
-        .length,
+      geographiques: points.filter(
+        (p) => p.typePoint === 'GEOGRAPHIQUE',
+      ).length,
       techniques: points.filter((p) => p.typePoint === 'TECHNIQUE').length,
       actifs: points.filter((p) => Boolean(p.actif)).length,
     };
   }, [points]);
 
- const resetFilters = () => {
-  setSearch('');
-  setTypePoint('TOUS');
-  setActif('true');
+  const resetFilters = () => {
+    setSearch('');
+    setTypePoint('TOUS');
+    setActif('all');
+  };
 
-  setTimeout(() => {
-    loadPoints();
-  }, 0);
-};
   const handleDeleteOrRestore = async (point: PointStructureListItem) => {
     const message = point.actif
       ? `Voulez-vous désactiver le point "${point.libelle}" ?`
@@ -212,27 +212,31 @@ export default function PointsStructurePage() {
               />
             </div>
 
-         <Select
-  value={typePoint}
-  onValueChange={(value: string) =>
-    setTypePoint(value as TypePointStructureFilter)
-  }
-  items={[
-    { label: 'Tous les types', value: 'TOUS' },
-    { label: 'Géographiques', value: 'GEOGRAPHIQUE' },
-    { label: 'Techniques', value: 'TECHNIQUE' },
-  ]}
-/>
-<Select
-  value={actif}
-  onValueChange={(value: string) => setActif(value as ActifFilter)}
-  items={[
-    { label: 'Actifs', value: 'true' },
-    { label: 'Inactifs', value: 'false' },
-    { label: 'Tous', value: 'all' },
-  ]}
-/>
-<button
+            <Select
+              value={typePoint}
+              onValueChange={(value: string) =>
+                setTypePoint(value as TypePointStructureFilter)
+              }
+              items={[
+                { label: 'Tous les types', value: 'TOUS' },
+                { label: 'Géographiques', value: 'GEOGRAPHIQUE' },
+                { label: 'Techniques', value: 'TECHNIQUE' },
+              ]}
+            />
+
+            <Select
+              value={actif}
+              onValueChange={(value: string) =>
+                setActif(value as ActifFilter)
+              }
+              items={[
+                { label: 'Tous', value: 'all' },
+                { label: 'Actifs', value: 'true' },
+                { label: 'Inactifs', value: 'false' },
+              ]}
+            />
+
+            <button
               type="button"
               onClick={resetFilters}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
@@ -240,8 +244,6 @@ export default function PointsStructurePage() {
               <RefreshCcw size={17} />
               Réinitialiser
             </button>
-
-            
           </div>
         </div>
 

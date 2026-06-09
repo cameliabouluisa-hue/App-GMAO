@@ -133,9 +133,9 @@ export async function getPointsStructure(
     params.set('typePoint', query.typePoint);
   }
 
-  if (query.actif && query.actif !== 'all') {
-    params.set('actif', query.actif);
-  }
+ if (query?.actif && query.actif !== 'all') {
+  params.append('actif', query.actif);
+}
 
   if (query.etat && query.etat !== 'TOUS') {
     params.set('etat', query.etat);
