@@ -1,21 +1,59 @@
-import { Famille, Modele, UniteArticle } from '../types/article';
+import type {
+  Famille,
+  Magasin,
+  UniteArticle,
+} from '../types/article';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE_URL = 'http://localhost:3001';
+
+async function parseApiError(res: Response, fallback: string) {
+  const error = await res.json().catch(() => null);
+
+  if (Array.isArray(error?.message)) {
+    return error.message.join(', ');
+  }
+
+  return error?.message ?? fallback;
+}
 
 export async function getFamilles(): Promise<Famille[]> {
-  const res = await fetch(`${API_BASE}/familles`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Erreur chargement familles.');
+  const res = await fetch(`${API_BASE_URL}/familles`, {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      await parseApiError(res, 'Erreur lors du chargement des familles.'),
+    );
+  }
+
   return res.json();
 }
 
 export async function getUnitesArticles(): Promise<UniteArticle[]> {
-  const res = await fetch(`${API_BASE}/unites-articles`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Erreur chargement unités.');
+  const res = await fetch(`${API_BASE_URL}/unites-articles`, {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      await parseApiError(res, "Erreur lors du chargement des unités d'articles."),
+    );
+  }
+
   return res.json();
 }
 
-export async function getModeles(): Promise<Modele[]> {
-  const res = await fetch(`${API_BASE}/modeles`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Erreur chargement modèles.');
+export async function getMagasins(): Promise<Magasin[]> {
+  const res = await fetch(`${API_BASE_URL}/magasins`, {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      await parseApiError(res, 'Erreur lors du chargement des magasins.'),
+    );
+  }
+
   return res.json();
 }

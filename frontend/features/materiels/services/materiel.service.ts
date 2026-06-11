@@ -1,58 +1,129 @@
 import axios from '@/lib/api';
-import { CreateMaterielDto, Materiel } from '../types/materiel';
 
-function cleanMaterielPayload(data: CreateMaterielDto): CreateMaterielDto {
-  return {
-    code: data.code?.trim(),
+import type {
+  Article,
+  ChangeEtatMaterielDto,
+  CreateMaterielDto,
+  EtatMateriel,
+  Materiel,
+  Modele,
+  PointStructure,
+  TypeMateriel,
+  UpdateCycleVieMaterielDto,
+  UpdateMaterielDto,
+} from '../types/materiel';
 
-    numeroSerie:
-      data.numeroSerie && data.numeroSerie.trim() !== ''
-        ? data.numeroSerie.trim()
-        : null,
-
-    dateMiseService:
-      data.dateMiseService && data.dateMiseService.trim() !== ''
-        ? data.dateMiseService
-        : null,
-
-    idArticle: data.idArticle ? Number(data.idArticle) : null,
-    idModele: data.idModele ? Number(data.idModele) : null,
-    idEtat: data.idEtat ? Number(data.idEtat) : null,
-    idType: data.idType ? Number(data.idType) : null,
-    idPointStructure: data.idPointStructure ? Number(data.idPointStructure) : null,
-
-    actif: data.actif ?? true,
-  };
+function toArray<T>(data: unknown): T[] {
+  return Array.isArray(data) ? (data as T[]) : [];
 }
+
+/* =========================
+   CRUD MATÉRIEL
+========================= */
 
 export async function getMateriels(): Promise<Materiel[]> {
   const res = await axios.get('/materiels');
-  return res.data;
+  return toArray<Materiel>(res.data);
 }
 
-export async function getMaterielById(id: number): Promise<Materiel> {
+export async function getMateriel(id: number): Promise<Materiel> {
   const res = await axios.get(`/materiels/${id}`);
   return res.data;
 }
 
-export async function createMateriel(data: CreateMaterielDto): Promise<Materiel> {
-  const payload = cleanMaterielPayload(data);
-  const res = await axios.post('/materiels', payload);
+export async function createMateriel(
+  data: CreateMaterielDto,
+): Promise<Materiel> {
+  const res = await axios.post('/materiels', data);
   return res.data;
 }
 
 export async function updateMateriel(
   id: number,
-  data: CreateMaterielDto,
+  data: UpdateMaterielDto,
 ): Promise<Materiel> {
-  const payload = cleanMaterielPayload(data);
-
-  console.log('PATCH matériel payload envoyé au backend :', payload);
-
-  const res = await axios.patch(`/materiels/${id}`, payload);
+  const res = await axios.patch(`/materiels/${id}`, data);
   return res.data;
 }
 
 export async function deleteMateriel(id: number): Promise<void> {
   await axios.delete(`/materiels/${id}`);
+}
+
+/* =========================
+   CYCLE DE VIE
+========================= */
+
+export async function updateCycleVieMateriel(
+  id: number,
+  data: UpdateCycleVieMaterielDto,
+): Promise<Materiel> {
+  const res = await axios.patch(`/materiels/${id}/cycle-vie`, data);
+  return res.data;
+}
+
+export async function changerEtatMateriel(
+  id: number,
+  data: ChangeEtatMaterielDto,
+): Promise<Materiel> {
+  const res = await axios.patch(`/materiels/${id}/changer-etat`, data);
+  return res.data;
+}
+
+export async function verifierInterventionPossible(id: number): Promise<{
+  possible: boolean;
+  message: string;
+  materiel: Materiel;
+}> {
+  const res = await axios.get(`/materiels/${id}/intervention-possible`);
+  return res.data;
+}
+
+/* =========================
+   RÉFÉRENTIELS FORMULAIRES
+========================= */
+
+export async function getArticles(): Promise<Article[]> {
+  try {
+    const res = await axios.get('/articles');
+    return toArray<Article>(res.data);
+  } catch {
+    return [];
+  }
+}
+
+export async function getModeles(): Promise<Modele[]> {
+  try {
+    const res = await axios.get('/modeles');
+    return toArray<Modele>(res.data);
+  } catch {
+    return [];
+  }
+}
+
+export async function getEtatsMateriel(): Promise<EtatMateriel[]> {
+  try {
+    const res = await axios.get('/materiels/referentiel/etats');
+    return toArray<EtatMateriel>(res.data);
+  } catch {
+    return [];
+  }
+}
+
+export async function getTypesMateriel(): Promise<TypeMateriel[]> {
+  try {
+    const res = await axios.get('/materiels/referentiel/types');
+    return toArray<TypeMateriel>(res.data);
+  } catch {
+    return [];
+  }
+}
+
+export async function getPointsStructure(): Promise<PointStructure[]> {
+  try {
+    const res = await axios.get('/points-structure');
+    return toArray<PointStructure>(res.data);
+  } catch {
+    return [];
+  }
 }

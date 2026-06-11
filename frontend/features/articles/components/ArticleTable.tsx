@@ -1,4 +1,4 @@
-'use client';
+/*'use client';
 
 import { Boxes, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -224,4 +224,4 @@ export function ArticleTable({ data, onCreate, onEdit, onRemove }: Props) {
       </div>
     </div>
   );
-}
+}*/

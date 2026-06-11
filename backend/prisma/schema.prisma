@@ -24,31 +24,56 @@ model affectation_technicien {
 }
 
 model article {
-  idArticle    Int      @id @default(autoincrement())
-  reference    String?  @unique @db.VarChar(50)
-  designation  String?  @db.VarChar(150)
-  description  String?  @db.Text
-  prixUnitaire Decimal? @db.Decimal(10, 2)
+  idArticle Int @id @default(autoincrement())
+
+  // Gestion
+  reference   String? @unique @db.VarChar(50) // Code
+  designation String? @db.VarChar(150) // Libellé
+  description String? @db.Text
+
+  etatArticle String            @default("ACTIF") @db.VarChar(30)
+  categorie   CategorieArticle? @default(PIECE_RECHANGE)
 
   idFamille      Int?
   idUniteArticle Int?
-  idModele       Int?
 
+  fournisseurPrincipal String? @db.VarChar(150)
+  fabricantArticle     String? @db.VarChar(150)
+  referenceFabricant   String? @db.VarChar(100)
+  nbDecimales          Int     @default(0)
+  codeBarres           String? @db.VarChar(100)
+
+  // Imputation
+  centreCout    String? @db.VarChar(100)
+  budget        String? @db.VarChar(100)
+  codeComptable String? @db.VarChar(100)
+  natureAchat   String? @db.VarChar(100)
+  taxe          String? @db.VarChar(50)
+
+  prixStandard     Decimal? @db.Decimal(10, 2)
+  prixMoyenPondere Decimal? @db.Decimal(10, 2)
+
+  // Paramètres
+  estModele   Boolean @default(false)
   gereEnStock Boolean @default(true)
+  gereParLot  Boolean @default(false)
   serialise   Boolean @default(false)
-  reparable   Boolean @default(false)
-  actif       Boolean @default(true)
+
+  // Gardés pour le fonctionnement interne
+  reparable Boolean @default(false)
+  actif     Boolean @default(true)
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
+  createdBy String?  @db.VarChar(100)
+  updatedBy String?  @db.VarChar(100)
 
   famille      famille?       @relation(fields: [idFamille], references: [idFamille], onDelete: SetNull, onUpdate: Restrict)
   uniteArticle unite_article? @relation(fields: [idUniteArticle], references: [idUniteArticle], onDelete: SetNull, onUpdate: Restrict)
-  modele       modele?        @relation(fields: [idModele], references: [idModele], onDelete: SetNull, onUpdate: Restrict)
 
-  
+  modeleEquipement modele? @relation("ArticleModele")
 
-  consommations consommation[]
+  consommations              consommation[]
   stocks                     stock_article_magasin[]
   mouvementsStock            mouvement_stock[]
   lignesEntreeStock          entree_stock_ligne[]
@@ -60,7 +85,37 @@ model article {
 
   @@index([idFamille])
   @@index([idUniteArticle])
-  @@index([idModele])
+  @@index([categorie])
+  @@index([etatArticle])
+  @@index([estModele])
+  @@index([gereEnStock])
+  @@index([serialise])
+  @@index([actif])
+}
+
+enum CategorieArticle {
+  PIECE_RECHANGE
+  CONSOMMABLE
+  FOURNITURE
+  OUTILLAGE
+  EQUIPEMENT_STOCKE
+  SERVICE
+  AUTRE
+}
+
+enum CriticiteModele {
+  FAIBLE
+  MOYENNE
+  ELEVEE
+  CRITIQUE
+}
+
+enum NiveauMaintenance {
+  NIVEAU_1
+  NIVEAU_2
+  NIVEAU_3
+  NIVEAU_4
+  NIVEAU_5
 }
 
 model consommation {
@@ -106,15 +161,11 @@ model demande_intervention {
 }
 
 model etat_materiel {
-  code String? @unique @db.VarChar(50)
-  idEtat    Int     @id @default(autoincrement())
-  libelle   String? @db.VarChar(100)
-  
+  code    String? @unique @db.VarChar(50)
+  idEtat  Int     @id @default(autoincrement())
+  libelle String? @db.VarChar(100)
 
-  
   materiel materiel[]
-
-
 }
 
 model etat_modele {
@@ -304,10 +355,9 @@ model materiel {
   plan_preventif_declencheur         plan_preventif_declencheur[]
   points_mesure                      point_mesure[]
 
-   createdAt DateTime @default(now())
+  createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  
   @@index([idEtat], map: "idEtat")
   @@index([idModele], map: "idModele")
   @@index([idType], map: "idType")
@@ -389,19 +439,51 @@ model mouvement_stock {
 
 model modele {
   idModele Int     @id @default(autoincrement())
-  code     String? @db.VarChar(50)
+  code     String? @unique @db.VarChar(50)
   libelle  String? @db.VarChar(100)
 
-  idFamille Int?
-  idEtat    Int
+  // Lien propre vers l'article modèle
+  idArticle Int? @unique
 
+  // Classification équipement
+  idFamille        Int?
+  idEtat           Int
   idTypeEquipement Int?
   idFabricant      Int?
   idMarque         Int?
 
-  commentaire String?  @db.Text
-  dureeVie    Int?
-  budget      Decimal? @db.Decimal(12, 2)
+  // Informations techniques générales
+  referenceConstructeur String? @db.VarChar(100)
+  version               String? @db.VarChar(50)
+  commentaire           String? @db.Text
+
+  // Maintenance
+  criticite         CriticiteModele?   @default(MOYENNE)
+  niveauMaintenance NiveauMaintenance?
+  dureeVie          Int?
+  garantieMois      Int?
+  reparable         Boolean            @default(true)
+
+  // Budget / estimation
+  budget               Decimal? @db.Decimal(12, 2)
+  coutMaintenancePrevu Decimal? @db.Decimal(12, 2)
+
+  // Données physiques simples
+  poidsKg  Decimal? @db.Decimal(10, 2)
+  longueur Decimal? @db.Decimal(10, 2)
+  largeur  Decimal? @db.Decimal(10, 2)
+  hauteur  Decimal? @db.Decimal(10, 2)
+
+  // Statut
+  actif Boolean @default(true)
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  createdBy String?  @db.VarChar(100)
+  updatedBy String?  @db.VarChar(100)
+
+  article article? @relation("ArticleModele", fields: [idArticle], references: [idArticle], onDelete: SetNull, onUpdate: Restrict)
 
   famille     famille?    @relation(fields: [idFamille], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "modele_ibfk_1")
   etat_modele etat_modele @relation(fields: [idEtat], references: [idEtat], onUpdate: Restrict, map: "modele_ibfk_2")
@@ -413,18 +495,18 @@ model modele {
   gamme                           gamme[]
   gamme_operation                 gamme_operation[]                 @relation("GammeOperationModele")
   materiel                        materiel[]
-  articles                        article[]
   plan_preventif_declencheur      plan_preventif_declencheur[]
   plan_preventif_predefini        plan_preventif_predefini[]
   ppp_declencheur                 ppp_declencheur[]
   modele_plan_preventif_predefini modele_plan_preventif_predefini[]
-
 
   @@index([idFamille], map: "idFamille")
   @@index([idEtat], map: "modele_ibfk_2")
   @@index([idTypeEquipement])
   @@index([idFabricant])
   @@index([idMarque])
+  @@index([criticite])
+  @@index([actif])
 }
 
 model operation_intervention {

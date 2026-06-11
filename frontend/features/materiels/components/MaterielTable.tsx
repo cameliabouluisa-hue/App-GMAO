@@ -1,4 +1,4 @@
-'use client';
+/*'use client';
 
 import {
   Eye,
@@ -226,4 +226,4 @@ export function MaterielTable({
       </div>
     </div>
   );
-}
+}*/

@@ -47,7 +47,7 @@ export class ModeleService {
       marque: true,
       gamme: true,
       materiel: true,
-      articles: true,
+      article: true,
 
       plan_preventif_predefini: {
         orderBy: {
@@ -291,15 +291,15 @@ export class ModeleService {
       where: { idModele },
       include: {
         _count: {
-          select: {
-            gamme: true,
-            gamme_operation: true,
-            materiel: true,
-            articles: true,
-            plan_preventif_declencheur: true,
-            ppp_declencheur: true,
-          },
-        },
+  select: {
+    gamme: true,
+    gamme_operation: true,
+    materiel: true,
+    plan_preventif_declencheur: true,
+    ppp_declencheur: true,
+  },
+},
+article: true,
       },
     });
 
@@ -308,12 +308,12 @@ export class ModeleService {
     }
 
     const isUsed =
-      existingModele._count.gamme > 0 ||
-      existingModele._count.gamme_operation > 0 ||
-      existingModele._count.materiel > 0 ||
-      existingModele._count.articles > 0 ||
-      existingModele._count.plan_preventif_declencheur > 0 ||
-      existingModele._count.ppp_declencheur > 0;
+     existingModele._count.gamme > 0 ||
+existingModele._count.gamme_operation > 0 ||
+existingModele._count.materiel > 0 ||
+existingModele.article !== null ||
+existingModele._count.plan_preventif_declencheur > 0 ||
+existingModele._count.ppp_declencheur > 0;
 
     if (isUsed) {
       throw new BadRequestException(

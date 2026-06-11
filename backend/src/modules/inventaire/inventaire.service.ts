@@ -41,28 +41,18 @@ export class InventaireService {
     if (idMagasin) {
       where.idMagasin = idMagasin;
     }
-
-    const stocks = await this.prisma.stock_article_magasin.findMany({
-      where,
+const stocks = await this.prisma.stock_article_magasin.findMany({
+  include: {
+    article: {
       include: {
-        magasin: true,
-        article: {
-          include: {
-            uniteArticle: true,
-            famille: true,
-            modele: true,
-          },
-        },
+        famille: true,
+        uniteArticle: true,
+        modeleEquipement: true,
       },
-      orderBy: [
-        {
-          idMagasin: 'asc',
-        },
-        {
-          idArticle: 'asc',
-        },
-      ],
-    });
+    },
+    magasin: true,
+  },
+});
 
     const normalizedSearch = search?.trim().toLowerCase();
 
@@ -91,7 +81,7 @@ export class InventaireService {
       unite: stock.article.uniteArticle?.code ?? null,
       serialise: stock.article.serialise,
       famille: stock.article.famille?.libelle ?? null,
-      modele: stock.article.modele?.code ?? null,
+    modele: stock.article.modeleEquipement?.code ?? null,
 
       idMagasin: stock.idMagasin,
       magasinCode: stock.magasin.code,

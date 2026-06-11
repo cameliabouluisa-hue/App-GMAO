@@ -29,95 +29,254 @@ export class MaterielService {
   constructor(private readonly prisma: PrismaService) {}
 
   private readonly includeRelations = {
-    modele: true,
+    modele: {
+      include: {
+        article: true,
+        famille: true,
+        etat_modele: true,
+        type_equipement: true,
+        fabricant: true,
+        marque: true,
+        plan_preventif_predefini: true,
+        modele_plan_preventif_predefini: {
+          include: {
+            plan_preventif_predefini: true,
+          },
+        },
+      },
+    },
+
     etat_materiel: true,
     type_materiel: true,
     point_structure: true,
-    materielParent: true,
-    sousMateriels: true,
-    points_mesure: true,
-    plan_preventif: true,
-    intervention: true,
+
+    entreeStockLigne: {
+      include: {
+        entreeStock: true,
+        article: true,
+        magasin: true,
+        emplacement: true,
+      },
+    },
+
+    materielParent: {
+      include: {
+        etat_materiel: true,
+        type_materiel: true,
+        modele: true,
+      },
+    },
+
+    sousMateriels: {
+      include: {
+        etat_materiel: true,
+        type_materiel: true,
+        modele: true,
+      },
+    },
+
+    points_mesure: {
+      orderBy: {
+        idPointMesure: 'asc',
+      },
+    },
+
+    plan_preventif: {
+      include: {
+        plan_preventif_predefini: true,
+        plan_preventif_declencheur: true,
+      },
+      orderBy: {
+        idPlanPreventif: 'desc',
+      },
+    },
+
+    plan_preventif_declencheur: {
+      include: {
+        plan_preventif: true,
+        gamme: true,
+        point_mesure: true,
+      },
+      orderBy: {
+        idPlanPreventifDeclencheur: 'desc',
+      },
+    },
+
+    intervention: {
+      include: {
+        demande_intervention: true,
+        gamme: true,
+        equipe_maintenance: true,
+        plan_preventif: true,
+      },
+      orderBy: {
+        idIntervention: 'desc',
+      },
+      take: 10,
+    },
+
+    mouvementsStock: {
+      include: {
+        article: true,
+        magasinSource: true,
+        magasinDestination: true,
+      },
+      orderBy: {
+        dateMouvement: 'desc',
+      },
+      take: 10,
+    },
+
+    lignesInventairePrepare: {
+      include: {
+        inventairePrepare: true,
+        article: true,
+      },
+      orderBy: {
+        idLigneInventairePrepare: 'desc',
+      },
+      take: 10,
+    },
+
+    lignesSortieStock: {
+      include: {
+        sortieStock: true,
+        article: true,
+        magasin: true,
+        emplacement: true,
+      },
+      orderBy: {
+        idLigneSortieStock: 'desc',
+      },
+      take: 10,
+    },
   } as const;
 
+  private formatMateriel(materiel: any) {
+    const plansMap = new Map<number, any>();
+
+    const plansDirects = materiel.modele?.plan_preventif_predefini ?? [];
+
+    for (const plan of plansDirects) {
+      if (plan?.actif === false) continue;
+
+      plansMap.set(plan.idPlanPreventifPredefini, {
+        ...plan,
+        principal: false,
+        actifAssociation: true,
+        origineAssociation: 'MODELE_DIRECT',
+      });
+    }
+
+    const liaisons =
+      materiel.modele?.modele_plan_preventif_predefini ?? [];
+
+    for (const liaison of liaisons) {
+      if (liaison?.actif === false) continue;
+      if (!liaison?.plan_preventif_predefini) continue;
+      if (liaison.plan_preventif_predefini.actif === false) continue;
+
+      plansMap.set(liaison.idPlanPreventifPredefini, {
+        ...liaison.plan_preventif_predefini,
+        principal: liaison.principal,
+        actifAssociation: liaison.actif,
+        idModelePlanPreventifPredefini:
+          liaison.idModelePlanPreventifPredefini,
+        origineAssociation: 'TABLE_LIAISON',
+      });
+    }
+
+    const plansPreventifsPredefinisModele = Array.from(plansMap.values());
+
+    const dateFinGarantiePrevisionnelle =
+      this.calculerDateFinGarantie(
+        materiel.dateMiseService,
+        materiel.modele?.garantieMois,
+      );
+
+    return {
+      ...materiel,
+      plansPreventifsPredefinisModele,
+      dateFinGarantiePrevisionnelle,
+    };
+  }
+
   async create(createDto: CreateMaterielDto) {
-    if (createDto.code) {
-      const existing = await this.prisma.materiel.findFirst({
-        where: {
-          code: createDto.code.trim(),
-        },
-      });
+    const code = this.normalizeRequiredString(
+      createDto.code,
+      'Le code du matériel est obligatoire.',
+    );
 
-      if (existing) {
-        throw new BadRequestException('Un matériel avec ce code existe déjà.');
-      }
-    }
+    const libelle = this.normalizeRequiredString(
+      createDto.libelle,
+      'Le libellé du matériel est obligatoire.',
+    );
 
-    if (createDto.numeroSerie) {
-      const existingNumeroSerie = await this.prisma.materiel.findFirst({
-        where: {
-          numeroSerie: createDto.numeroSerie.trim(),
-        },
-      });
+    await this.checkUniqueCode(code);
+    await this.checkUniqueNumeroSerie(createDto.numeroSerie);
 
-      if (existingNumeroSerie) {
-        throw new BadRequestException(
-          'Un matériel avec ce numéro de série existe déjà.',
-        );
-      }
-    }
+    const idEtat = await this.resolveEtatCreation(createDto.idEtat);
 
-    if (createDto.gereEnStock === true && createDto.dateDernierInventaire) {
+    await this.findEtatOrFail(idEtat);
+    await this.validateReferences(createDto);
+
+    const gereEnStock = createDto.gereEnStock ?? false;
+
+    if (gereEnStock && createDto.dateDernierInventaire) {
       throw new BadRequestException(
         "Le dernier inventaire d'un matériel géré en stock doit être mis à jour depuis le module stock.",
       );
     }
 
-    return this.prisma.materiel.create({
-      data: {
-        code: createDto.code?.trim() || null,
-        libelle: createDto.libelle?.trim() || null,
-        numeroSerie: createDto.numeroSerie?.trim() || null,
+    const positionActuelle =
+      this.normalizeOptionalString(createDto.positionActuelle) ??
+      (gereEnStock ? 'EN_STOCK' : 'SUR_TERRAIN');
 
-        dateMiseService: createDto.dateMiseService
-          ? new Date(createDto.dateMiseService)
-          : null,
+    const data: any = {
+      code,
+      libelle,
+      numeroSerie: this.normalizeOptionalString(createDto.numeroSerie),
 
-        dateDernierInventaire: createDto.dateDernierInventaire
-          ? new Date(createDto.dateDernierInventaire)
-          : null,
+      dateMiseService: this.parseOptionalDate(createDto.dateMiseService),
+      dateDernierInventaire: this.parseOptionalDate(
+        createDto.dateDernierInventaire,
+      ),
+      dateRebut: this.parseOptionalDate(createDto.dateRebut),
+      motifRebut: this.normalizeOptionalString(createDto.motifRebut),
 
-        dateRebut: createDto.dateRebut ? new Date(createDto.dateRebut) : null,
-        motifRebut: createDto.motifRebut?.trim() || null,
+      gereEnStock,
+      positionActuelle,
 
-        gereEnStock: createDto.gereEnStock ?? false,
-        positionActuelle: createDto.positionActuelle?.trim() || null,
+      idModele: createDto.idModele ?? null,
+      idEtat,
+      idType: createDto.idType ?? null,
+      idPointStructure: createDto.idPointStructure ?? null,
+      idMaterielParent: createDto.idMaterielParent ?? null,
+      idLigneEntreeStock: createDto.idLigneEntreeStock ?? null,
 
-        idModele: createDto.idModele ?? null,
-        idEtat: createDto.idEtat ?? null,
-        idType: createDto.idType ?? null,
-        idPointStructure: createDto.idPointStructure ?? null,
-        idMaterielParent: createDto.idMaterielParent ?? null,
-        idLigneEntreeStock: createDto.idLigneEntreeStock ?? null,
+      actif: createDto.actif ?? true,
+    };
 
-        actif: createDto.actif ?? true,
-      },
+    const etat = await this.findEtatOrFail(idEtat);
+    this.appliquerEffetsEtat(data, this.getCodeEtat(etat), createDto.motifRebut);
+
+    const materiel = await this.prisma.materiel.create({
+      data,
       include: this.includeRelations,
     });
+
+    return this.formatMateriel(materiel);
   }
 
   async findAll() {
-    return this.prisma.materiel.findMany({
+    const materiels = await this.prisma.materiel.findMany({
       orderBy: {
         idMateriel: 'desc',
       },
-      include: {
-        modele: true,
-        etat_materiel: true,
-        type_materiel: true,
-        point_structure: true,
-      },
+      include: this.includeRelations,
     });
+
+    return materiels.map((materiel) => this.formatMateriel(materiel));
   }
 
   async findOne(id: number) {
@@ -132,46 +291,58 @@ export class MaterielService {
       throw new NotFoundException('Matériel introuvable.');
     }
 
-    return materiel;
+    return this.formatMateriel(materiel);
   }
 
   async update(id: number, updateDto: UpdateMaterielDto) {
     const materiel = await this.findOne(id);
 
-    if (updateDto.code) {
-      const existing = await this.prisma.materiel.findFirst({
-        where: {
-          code: updateDto.code.trim(),
-          NOT: {
-            idMateriel: id,
-          },
-        },
-      });
+    const data: any = {};
 
-      if (existing) {
-        throw new BadRequestException('Un autre matériel utilise déjà ce code.');
-      }
+    if (updateDto.code !== undefined) {
+      const code = this.normalizeRequiredString(
+        updateDto.code,
+        'Le code du matériel est obligatoire.',
+      );
+
+      await this.checkUniqueCode(code, id);
+      data.code = code;
     }
 
-    if (updateDto.numeroSerie) {
-      const existingNumeroSerie = await this.prisma.materiel.findFirst({
-        where: {
-          numeroSerie: updateDto.numeroSerie.trim(),
-          NOT: {
-            idMateriel: id,
-          },
-        },
-      });
-
-      if (existingNumeroSerie) {
-        throw new BadRequestException(
-          'Un autre matériel utilise déjà ce numéro de série.',
-        );
-      }
+    if (updateDto.libelle !== undefined) {
+      data.libelle = this.normalizeRequiredString(
+        updateDto.libelle,
+        'Le libellé du matériel est obligatoire.',
+      );
     }
+
+    if (updateDto.numeroSerie !== undefined) {
+      await this.checkUniqueNumeroSerie(updateDto.numeroSerie, id);
+      data.numeroSerie = this.normalizeOptionalString(updateDto.numeroSerie);
+    }
+
+    if (updateDto.idEtat !== undefined) {
+      if (updateDto.idEtat === null) {
+        throw new BadRequestException("L'état du matériel est obligatoire.");
+      }
+
+      const nouvelEtat = await this.findEtatOrFail(updateDto.idEtat);
+
+      const ancienCodeEtat = materiel.etat_materiel?.code ?? null;
+      const nouveauCodeEtat = this.getCodeEtat(nouvelEtat);
+
+      this.verifierTransitionEtat(ancienCodeEtat, nouveauCodeEtat);
+
+      data.idEtat = updateDto.idEtat;
+      this.appliquerEffetsEtat(data, nouveauCodeEtat, updateDto.motifRebut);
+    }
+
+    await this.validateReferences(updateDto, id);
+
+    const finalGereEnStock = updateDto.gereEnStock ?? materiel.gereEnStock;
 
     if (
-      materiel.gereEnStock === true &&
+      finalGereEnStock === true &&
       updateDto.dateDernierInventaire !== undefined
     ) {
       throw new BadRequestException(
@@ -179,77 +350,67 @@ export class MaterielService {
       );
     }
 
-    return this.prisma.materiel.update({
+    if (updateDto.dateMiseService !== undefined) {
+      data.dateMiseService = this.parseOptionalDate(updateDto.dateMiseService);
+    }
+
+    if (updateDto.dateDernierInventaire !== undefined) {
+      data.dateDernierInventaire = this.parseOptionalDate(
+        updateDto.dateDernierInventaire,
+      );
+    }
+
+    if (updateDto.dateRebut !== undefined) {
+      data.dateRebut = this.parseOptionalDate(updateDto.dateRebut);
+    }
+
+    if (updateDto.motifRebut !== undefined) {
+      data.motifRebut = this.normalizeOptionalString(updateDto.motifRebut);
+    }
+
+    if (updateDto.gereEnStock !== undefined) {
+      data.gereEnStock = updateDto.gereEnStock;
+    }
+
+    if (updateDto.positionActuelle !== undefined) {
+      data.positionActuelle = this.normalizeOptionalString(
+        updateDto.positionActuelle,
+      );
+    }
+
+    if (updateDto.idModele !== undefined) {
+      data.idModele = updateDto.idModele ?? null;
+    }
+
+    if (updateDto.idType !== undefined) {
+      data.idType = updateDto.idType ?? null;
+    }
+
+    if (updateDto.idPointStructure !== undefined) {
+      data.idPointStructure = updateDto.idPointStructure ?? null;
+    }
+
+    if (updateDto.idMaterielParent !== undefined) {
+      data.idMaterielParent = updateDto.idMaterielParent ?? null;
+    }
+
+    if (updateDto.idLigneEntreeStock !== undefined) {
+      data.idLigneEntreeStock = updateDto.idLigneEntreeStock ?? null;
+    }
+
+    if (updateDto.actif !== undefined) {
+      data.actif = updateDto.actif;
+    }
+
+    const updatedMateriel = await this.prisma.materiel.update({
       where: {
         idMateriel: id,
       },
-      data: {
-        ...(updateDto.code !== undefined && {
-          code: updateDto.code?.trim() || null,
-        }),
-
-        ...(updateDto.libelle !== undefined && {
-          libelle: updateDto.libelle?.trim() || null,
-        }),
-
-        ...(updateDto.numeroSerie !== undefined && {
-          numeroSerie: updateDto.numeroSerie?.trim() || null,
-        }),
-
-        ...(updateDto.dateMiseService !== undefined && {
-          dateMiseService: updateDto.dateMiseService
-            ? new Date(updateDto.dateMiseService)
-            : null,
-        }),
-
-        ...(updateDto.dateDernierInventaire !== undefined && {
-          dateDernierInventaire: updateDto.dateDernierInventaire
-            ? new Date(updateDto.dateDernierInventaire)
-            : null,
-        }),
-
-        ...(updateDto.dateRebut !== undefined && {
-          dateRebut: updateDto.dateRebut ? new Date(updateDto.dateRebut) : null,
-        }),
-
-        ...(updateDto.motifRebut !== undefined && {
-          motifRebut: updateDto.motifRebut?.trim() || null,
-        }),
-
-        ...(updateDto.gereEnStock !== undefined && {
-          gereEnStock: updateDto.gereEnStock,
-        }),
-
-        ...(updateDto.positionActuelle !== undefined && {
-          positionActuelle: updateDto.positionActuelle?.trim() || null,
-        }),
-
-        ...(updateDto.idModele !== undefined && {
-          idModele: updateDto.idModele ?? null,
-        }),
-
-        ...(updateDto.idType !== undefined && {
-          idType: updateDto.idType ?? null,
-        }),
-
-        ...(updateDto.idPointStructure !== undefined && {
-          idPointStructure: updateDto.idPointStructure ?? null,
-        }),
-
-        ...(updateDto.idMaterielParent !== undefined && {
-          idMaterielParent: updateDto.idMaterielParent ?? null,
-        }),
-
-        ...(updateDto.idLigneEntreeStock !== undefined && {
-          idLigneEntreeStock: updateDto.idLigneEntreeStock ?? null,
-        }),
-
-        ...(updateDto.actif !== undefined && {
-          actif: updateDto.actif,
-        }),
-      },
+      data,
       include: this.includeRelations,
     });
+
+    return this.formatMateriel(updatedMateriel);
   }
 
   async updateCycleVie(id: number, dto: UpdateCycleVieMaterielDto) {
@@ -267,6 +428,10 @@ export class MaterielService {
     const data: any = {};
 
     if (dto.idEtat !== undefined) {
+      if (dto.idEtat === null) {
+        throw new BadRequestException("L'état du matériel est obligatoire.");
+      }
+
       const nouvelEtat = await this.findEtatOrFail(dto.idEtat);
 
       const ancienCodeEtat = materiel.etat_materiel?.code ?? null;
@@ -275,51 +440,43 @@ export class MaterielService {
       this.verifierTransitionEtat(ancienCodeEtat, nouveauCodeEtat);
 
       data.idEtat = dto.idEtat;
-
-      if (nouveauCodeEtat === 'AU_REBUT') {
-        data.positionActuelle = 'AU_REBUT';
-        data.dateRebut = dto.dateRebut ? new Date(dto.dateRebut) : new Date();
-      }
-
-      if (nouveauCodeEtat === 'ANNULE') {
-        data.actif = false;
-      }
-
-      if (nouveauCodeEtat === 'VALIDE') {
-        data.actif = true;
-      }
+      this.appliquerEffetsEtat(data, nouveauCodeEtat, dto.motifRebut);
     }
 
     if (dto.dateMiseService !== undefined) {
-      data.dateMiseService = dto.dateMiseService
-        ? new Date(dto.dateMiseService)
-        : null;
+      data.dateMiseService = this.parseOptionalDate(dto.dateMiseService);
     }
 
     if (dto.dateDernierInventaire !== undefined) {
-      data.dateDernierInventaire = dto.dateDernierInventaire
-        ? new Date(dto.dateDernierInventaire)
-        : null;
+      data.dateDernierInventaire = this.parseOptionalDate(
+        dto.dateDernierInventaire,
+      );
     }
 
     if (dto.dateRebut !== undefined) {
-      data.dateRebut = dto.dateRebut ? new Date(dto.dateRebut) : null;
+      data.dateRebut = this.parseOptionalDate(dto.dateRebut);
     }
 
     if (dto.motifRebut !== undefined) {
-      data.motifRebut = dto.motifRebut?.trim() || null;
+      data.motifRebut = this.normalizeOptionalString(dto.motifRebut);
     }
 
-    return this.prisma.materiel.update({
+    const updatedMateriel = await this.prisma.materiel.update({
       where: {
         idMateriel: id,
       },
       data,
       include: this.includeRelations,
     });
+
+    return this.formatMateriel(updatedMateriel);
   }
 
   async changerEtatMateriel(id: number, dto: ChangeEtatMaterielDto) {
+    if (dto.idEtat === undefined || dto.idEtat === null) {
+      throw new BadRequestException("L'état du matériel est obligatoire.");
+    }
+
     const materiel = await this.findOne(id);
     const nouvelEtat = await this.findEtatOrFail(dto.idEtat);
 
@@ -332,27 +489,17 @@ export class MaterielService {
       idEtat: dto.idEtat,
     };
 
-    if (nouveauCodeEtat === 'AU_REBUT') {
-      data.positionActuelle = 'AU_REBUT';
-      data.dateRebut = new Date();
-      data.motifRebut = dto.motif?.trim() || null;
-    }
+    this.appliquerEffetsEtat(data, nouveauCodeEtat, dto.motif);
 
-    if (nouveauCodeEtat === 'ANNULE') {
-      data.actif = false;
-    }
-
-    if (nouveauCodeEtat === 'VALIDE') {
-      data.actif = true;
-    }
-
-    return this.prisma.materiel.update({
+    const updatedMateriel = await this.prisma.materiel.update({
       where: {
         idMateriel: id,
       },
       data,
       include: this.includeRelations,
     });
+
+    return this.formatMateriel(updatedMateriel);
   }
 
   async verifierInterventionPossible(id: number) {
@@ -390,7 +537,7 @@ export class MaterielService {
       );
     }
 
-    return this.prisma.materiel.update({
+    const updatedMateriel = await this.prisma.materiel.update({
       where: {
         idMateriel,
       },
@@ -398,6 +545,24 @@ export class MaterielService {
         dateDernierInventaire: dateInventaire,
       },
       include: this.includeRelations,
+    });
+
+    return this.formatMateriel(updatedMateriel);
+  }
+
+  async findEtatsMateriel() {
+    return this.prisma.etat_materiel.findMany({
+      orderBy: {
+        idEtat: 'asc',
+      },
+    });
+  }
+
+  async findTypesMateriel() {
+    return this.prisma.type_materiel.findMany({
+      orderBy: {
+        idType: 'asc',
+      },
     });
   }
 
@@ -409,6 +574,112 @@ export class MaterielService {
         idMateriel: id,
       },
     });
+  }
+
+  private async resolveEtatCreation(idEtat?: number | null) {
+    if (idEtat !== undefined && idEtat !== null) {
+      return idEtat;
+    }
+
+    const etatPreparation = await this.prisma.etat_materiel.findFirst({
+      where: {
+        code: 'EN_PREPARATION',
+      },
+    });
+
+    if (!etatPreparation) {
+      throw new BadRequestException(
+        "Aucun état EN_PREPARATION n'existe dans la table etat_materiel.",
+      );
+    }
+
+    return etatPreparation.idEtat;
+  }
+
+  private async validateReferences(
+    dto: {
+      idModele?: number | null;
+      idType?: number | null;
+      idPointStructure?: number | null;
+      idMaterielParent?: number | null;
+      idLigneEntreeStock?: number | null;
+    },
+    currentId?: number,
+  ) {
+    if (dto.idModele !== undefined && dto.idModele !== null) {
+      const modele = await this.prisma.modele.findUnique({
+        where: {
+          idModele: dto.idModele,
+        },
+      });
+
+      if (!modele) {
+        throw new NotFoundException('Modèle introuvable.');
+      }
+    }
+
+    if (dto.idType !== undefined && dto.idType !== null) {
+      const type = await this.prisma.type_materiel.findUnique({
+        where: {
+          idType: dto.idType,
+        },
+      });
+
+      if (!type) {
+        throw new NotFoundException('Type de matériel introuvable.');
+      }
+    }
+
+    if (
+      dto.idPointStructure !== undefined &&
+      dto.idPointStructure !== null
+    ) {
+      const point = await this.prisma.point_structure.findUnique({
+        where: {
+          idPoint: dto.idPointStructure,
+        },
+      });
+
+      if (!point) {
+        throw new NotFoundException('Point de structure introuvable.');
+      }
+    }
+
+    if (
+      dto.idMaterielParent !== undefined &&
+      dto.idMaterielParent !== null
+    ) {
+      if (currentId && dto.idMaterielParent === currentId) {
+        throw new BadRequestException(
+          'Un matériel ne peut pas être son propre père matériel.',
+        );
+      }
+
+      const parent = await this.prisma.materiel.findUnique({
+        where: {
+          idMateriel: dto.idMaterielParent,
+        },
+      });
+
+      if (!parent) {
+        throw new NotFoundException('Matériel parent introuvable.');
+      }
+    }
+
+    if (
+      dto.idLigneEntreeStock !== undefined &&
+      dto.idLigneEntreeStock !== null
+    ) {
+      const ligneEntree = await this.prisma.entree_stock_ligne.findUnique({
+        where: {
+          idLigneEntreeStock: dto.idLigneEntreeStock,
+        },
+      });
+
+      if (!ligneEntree) {
+        throw new NotFoundException('Ligne d’entrée stock introuvable.');
+      }
+    }
   }
 
   private async findEtatOrFail(idEtat: number) {
@@ -425,6 +696,49 @@ export class MaterielService {
     return etat;
   }
 
+  private async checkUniqueCode(code: string, currentId?: number) {
+    const existing = await this.prisma.materiel.findFirst({
+      where: {
+        code,
+        ...(currentId && {
+          NOT: {
+            idMateriel: currentId,
+          },
+        }),
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException('Un matériel avec ce code existe déjà.');
+    }
+  }
+
+  private async checkUniqueNumeroSerie(
+    numeroSerie?: string | null,
+    currentId?: number,
+  ) {
+    const normalized = this.normalizeOptionalString(numeroSerie);
+
+    if (!normalized) return;
+
+    const existing = await this.prisma.materiel.findFirst({
+      where: {
+        numeroSerie: normalized,
+        ...(currentId && {
+          NOT: {
+            idMateriel: currentId,
+          },
+        }),
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException(
+        'Un matériel avec ce numéro de série existe déjà.',
+      );
+    }
+  }
+
   private getCodeEtat(etat: { code: string | null }) {
     if (!etat.code) {
       throw new BadRequestException(
@@ -439,13 +753,9 @@ export class MaterielService {
     ancienCodeEtat: string | null,
     nouveauCodeEtat: string,
   ) {
-    if (!ancienCodeEtat) {
-      return;
-    }
+    if (!ancienCodeEtat) return;
 
-    if (ancienCodeEtat === nouveauCodeEtat) {
-      return;
-    }
+    if (ancienCodeEtat === nouveauCodeEtat) return;
 
     const transitionsPossibles =
       TRANSITIONS_MATERIEL_AUTORISEES[ancienCodeEtat] ?? [];
@@ -455,5 +765,74 @@ export class MaterielService {
         `Transition non autorisée : ${ancienCodeEtat} → ${nouveauCodeEtat}.`,
       );
     }
+  }
+
+  private appliquerEffetsEtat(
+    data: any,
+    nouveauCodeEtat: string,
+    motif?: string | null,
+  ) {
+    if (nouveauCodeEtat === 'AU_REBUT') {
+      data.positionActuelle = 'AU_REBUT';
+
+      if (!data.dateRebut) {
+        data.dateRebut = new Date();
+      }
+
+      data.motifRebut = this.normalizeOptionalString(motif) ?? data.motifRebut;
+    }
+
+    if (nouveauCodeEtat === 'ANNULE') {
+      data.actif = false;
+    }
+
+    if (nouveauCodeEtat === 'VALIDE') {
+      data.actif = true;
+    }
+  }
+
+  private normalizeOptionalString(value?: string | null) {
+    if (value === undefined || value === null) return null;
+
+    const trimmed = value.trim();
+
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private normalizeRequiredString(value: string | null | undefined, message: string) {
+    const trimmed = value?.trim() ?? '';
+
+    if (!trimmed) {
+      throw new BadRequestException(message);
+    }
+
+    return trimmed;
+  }
+
+  private parseOptionalDate(value?: string | Date | null) {
+    if (!value) return null;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException('Date invalide.');
+    }
+
+    return date;
+  }
+
+  private calculerDateFinGarantie(
+    dateMiseService?: Date | string | null,
+    garantieMois?: number | null,
+  ) {
+    if (!dateMiseService || !garantieMois) return null;
+
+    const date = new Date(dateMiseService);
+
+    if (Number.isNaN(date.getTime())) return null;
+
+    date.setMonth(date.getMonth() + garantieMois);
+
+    return date;
   }
 }

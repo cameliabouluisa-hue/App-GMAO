@@ -33,11 +33,19 @@ export class MaterielController {
   verifierInterventionPossible(@Param('id', ParseIntPipe) id: number) {
     return this.materielService.verifierInterventionPossible(id);
   }
-
+ @Get('referentiel/etats')
+findEtatsMateriel() {
+  return this.materielService.findEtatsMateriel();
+}
+@Get('referentiel/types')
+findTypesMateriel() {
+  return this.materielService.findTypesMateriel();
+}
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.materielService.findOne(id);
   }
+ 
 
   @Patch(':id')
   update(

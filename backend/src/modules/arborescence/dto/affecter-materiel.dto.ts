@@ -4,14 +4,14 @@ import { Type } from 'class-transformer';
 export class AffecterMaterielDto {
   @Type(() => Number)
   @IsInt()
-  idMateriel: number;
+  idMateriel?: number;
 
   @Type(() => Number)
   @IsInt()
-  idPoint: number;
+  idPoint?: number;
 
   @IsIn(['GEOGRAPHIQUE', 'TECHNIQUE', 'MATERIEL'])
-  typeArborescence: 'GEOGRAPHIQUE' | 'TECHNIQUE' | 'MATERIEL';
+  typeArborescence?: 'GEOGRAPHIQUE' | 'TECHNIQUE' | 'MATERIEL';
 
   @IsOptional()
   @Type(() => Number)
