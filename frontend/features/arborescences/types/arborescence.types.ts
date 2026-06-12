@@ -1,13 +1,16 @@
 export type ArborescenceMode = 'GEOGRAPHIQUE' | 'TECHNIQUE' | 'FAMILLE';
 
 export type ArborescenceNodeType =
+  | 'ROOT'
   | 'POINT_STRUCTURE'
   | 'MATERIEL'
   | 'FAMILLE'
-  | 'GROUPE_MODELES'
   | 'MODELE'
-  | 'GROUPE_ARTICLES'
-  | 'ARTICLE';
+  | 'ARTICLE'
+  | 'GROUP_MODELES'
+  | 'GROUP_ARTICLES';
+
+
 
 export type ArborescenceNode = {
   key: string;

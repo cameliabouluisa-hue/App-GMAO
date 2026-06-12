@@ -1,4 +1,5 @@
 import ArborescenceTabs from '@/features/arborescences/components/ArborescenceTabs';
+
 import {
   getArborescenceFamilles,
   getArborescenceGeographique,

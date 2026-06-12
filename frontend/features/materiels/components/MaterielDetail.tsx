@@ -1,3 +1,5 @@
+
+
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -10,6 +12,13 @@ import {
   RefreshCcw,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+
+import {
+  AppBadge,
+  AppFieldGrid,
+  AppReadField,
+  AppSection,
+} from '@/components/app-section-layout';
 
 import { genererPlanPreventifDepuisPPP } from '@/features/materiels/services/materiel.service';
 import type { Materiel } from '@/features/materiels/types/materiel';
@@ -65,8 +74,8 @@ function getTypeLabel(materiel: MaterielDetail) {
 
 /**
  * Champs liés :
- * On affiche le libellé seulement.
- * Si le libellé n’existe pas, on affiche le code comme secours.
+ * On affiche le libellé uniquement.
+ * Si le libellé n’existe pas, on affiche le code en secours.
  */
 function getModeleLabel(materiel: MaterielDetail) {
   const modele = materiel.modele;
@@ -76,7 +85,8 @@ function getModeleLabel(materiel: MaterielDetail) {
 }
 
 function getArticleLabel(materiel: MaterielDetail) {
-  const article = materiel.modele?.article;
+  const article = materiel.modele?.article as any;
+
   if (!article) return null;
 
   return (
@@ -118,6 +128,7 @@ function formatCriticite(value?: string | null) {
     FAIBLE: 'Faible',
     MOYENNE: 'Moyenne',
     ELEVEE: 'Élevée',
+    ÉLEVÉE: 'Élevée',
     CRITIQUE: 'Critique',
   };
 
@@ -152,7 +163,7 @@ function getConditionDeclenchement(plan: any) {
     } ${declencheur.point_mesure?.unite || ''}`;
   }
 
-  return declencheur.typeDeclencheur;
+  return declencheur.typeDeclencheur || '—';
 }
 
 function getProchainLancement(plan: any) {
@@ -184,17 +195,21 @@ export default function MaterielDetailCard({
   const [activeTab, setActiveTab] = useState<TabId>('general');
   const [generatingId, setGeneratingId] = useState<number | null>(null);
 
+  const materielActif = materiel.actif !== false;
+
   const code = materiel.code || `MAT-${materiel.idMateriel}`;
   const libelle = materiel.libelle || 'Matériel sans libellé';
 
   const modele = materiel.modele;
   const pointStructure = materiel.point_structure;
 
-  const plansModele = materiel.plansPreventifsPredefinisModele ?? [];
-  const plansReels = materiel.plan_preventif ?? [];
-  const pointsMesure = materiel.points_mesure ?? [];
-  const interventions = materiel.intervention ?? [];
-  const sousMateriels = materiel.sousMateriels ?? [];
+  const plansModele = ((materiel as any).plansPreventifsPredefinisModele ??
+    []) as any[];
+
+  const plansReels = ((materiel as any).plan_preventif ?? []) as any[];
+  const pointsMesure = ((materiel as any).points_mesure ?? []) as any[];
+  const interventions = ((materiel as any).intervention ?? []) as any[];
+  const sousMateriels = ((materiel as any).sousMateriels ?? []) as any[];
 
   const firstAvailablePPP = plansModele.find(
     (ppp) =>
@@ -205,7 +220,7 @@ export default function MaterielDetailCard({
       ),
   );
 
-  const canGenerateFromModel = Boolean(firstAvailablePPP);
+  const canGenerateFromModel = materielActif && Boolean(firstAvailablePPP);
 
   async function handleGeneratePlan(idPPP: number) {
     try {
@@ -243,13 +258,9 @@ export default function MaterielDetailCard({
                   {code}
                 </h1>
 
-                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
-                  {getEtatLabel(materiel)}
-                </span>
+                <AppBadge>{getEtatLabel(materiel)}</AppBadge>
 
-                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
-                  {materiel.actif === false ? 'Inactif' : 'Actif'}
-                </span>
+                <AppBadge>{materielActif ? 'Actif' : 'Inactif'}</AppBadge>
               </div>
 
               <p className="mt-2 min-w-0 break-words text-sm font-semibold text-white/75">
@@ -264,7 +275,7 @@ export default function MaterielDetailCard({
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-bold text-white transition hover:bg-white/25 disabled:opacity-60"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-bold text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCcw
                 size={16}
@@ -273,12 +284,11 @@ export default function MaterielDetailCard({
               Actualiser
             </button>
 
-            {materiel.actif === false ? (
+            {materielActif ? (
               <button
                 type="button"
-                disabled
-                title="Ce matériel est inactif. Réactivez-le avant modification."
-                className="inline-flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 text-sm font-black text-slate-400"
+                onClick={onEdit}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-black text-[#0b3d4f] shadow-sm transition hover:bg-slate-50"
               >
                 <Pencil size={16} />
                 Modifier
@@ -286,8 +296,9 @@ export default function MaterielDetailCard({
             ) : (
               <button
                 type="button"
-                onClick={onEdit}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-black text-[#0b3d4f] shadow-sm transition hover:bg-slate-50"
+                disabled
+                title="Ce matériel est inactif. Réactivez-le avant modification."
+                className="inline-flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 text-sm font-black text-slate-400"
               >
                 <Pencil size={16} />
                 Modifier
@@ -325,107 +336,116 @@ export default function MaterielDetailCard({
       <div className="p-6">
         {activeTab === 'general' && (
           <div className="space-y-6">
-            <Section title="Généralités">
-              <FieldGrid>
-                <Field label="Code" value={code} />
+            <AppSection title="Généralités">
+              <AppFieldGrid>
+                <AppReadField label="Code" value={code} />
 
-                <Field label="Libellé" value={libelle} />
+                <AppReadField label="Libellé" value={libelle} />
 
-                <Field
+                <AppReadField
                   label="N° de série"
                   value={formatValue(materiel.numeroSerie)}
                 />
 
-                <Field label="Modèle" value={getModeleLabel(materiel)} />
+                <AppReadField label="Modèle" value={getModeleLabel(materiel)} />
 
-                <Field label="Type matériel" value={getTypeLabel(materiel)} />
-
-                <OptionalField label="Article" value={getArticleLabel(materiel)} />
-
-                <OptionalField label="Marque" value={modele?.marque?.libelle} />
-
-                <OptionalField
-                  label="Criticité"
-                  value={formatCriticite(modele?.criticite)}
+                <AppReadField
+                  label="Type matériel"
+                  value={getTypeLabel(materiel)}
                 />
 
-                <OptionalField
+                <OptionalReadField
+                  label="Article"
+                  value={getArticleLabel(materiel)}
+                />
+
+                <OptionalReadField
+                  label="Marque"
+                  value={(modele as any)?.marque?.libelle}
+                />
+
+                <OptionalReadField
+                  label="Criticité"
+                  value={formatCriticite((modele as any)?.criticite)}
+                />
+
+                <OptionalReadField
                   label="Réparable"
                   value={
-                    modele?.reparable === null ||
-                    modele?.reparable === undefined
+                    (modele as any)?.reparable === null ||
+                    (modele as any)?.reparable === undefined
                       ? null
-                      : formatValue(modele.reparable)
+                      : formatValue((modele as any).reparable)
                   }
                 />
 
-                <Field
+                <AppReadField
                   label="Actif"
                   value={<ActifBadge actif={materiel.actif} />}
                 />
-              </FieldGrid>
-            </Section>
+              </AppFieldGrid>
+            </AppSection>
 
             <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <Section title="Affectation">
-                <FieldGrid>
-                  <Field
+              <AppSection title="Affectation">
+                <AppFieldGrid>
+                  <AppReadField
                     label="Organisation"
                     value={pointStructure?.organisation || 'BMT'}
                   />
 
-                  <Field
+                  <AppReadField
                     label="Père géographique"
                     value={getPointStructureLabel(materiel)}
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Père principal"
                     value={pointStructure?.libelle}
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Père matériel"
                     value={getParentLabel(materiel)}
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Responsable"
                     value={pointStructure?.responsable}
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Centre de coût"
                     value={pointStructure?.centreCout}
                   />
 
-                  <Field
+                  <AppReadField
                     label="Position actuelle"
                     value={getPositionLabel(materiel.positionActuelle)}
                   />
 
-                  <Field
+                  <AppReadField
                     label="Sous-matériels"
                     value={`${sousMateriels.length} élément(s)`}
                   />
-                </FieldGrid>
-              </Section>
+                </AppFieldGrid>
+              </AppSection>
 
-              <Section title="Cycle de vie">
-                <div className="min-w-0 space-y-4">
-                  <Field label="État" value={getEtatLabel(materiel)} />
+              <AppSection title="Cycle de vie">
+                <div className="min-w-0">
+                  <AppReadField label="État" value={getEtatLabel(materiel)} />
 
-                  <Field
+                  <AppReadField
                     label="Dernier inventaire"
                     value={formatDate(materiel.dateDernierInventaire)}
                   />
 
-                  <Field
+                  <AppReadField
                     label="Mise en service"
                     value={formatDate(materiel.dateMiseService)}
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Date rebut"
                     value={
                       materiel.dateRebut
@@ -434,12 +454,12 @@ export default function MaterielDetailCard({
                     }
                   />
 
-                  <OptionalField
+                  <OptionalReadField
                     label="Motif rebut"
                     value={materiel.motifRebut}
                   />
                 </div>
-              </Section>
+              </AppSection>
             </div>
           </div>
         )}
@@ -460,12 +480,20 @@ export default function MaterielDetailCard({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() =>
+                  disabled={!materielActif}
+                  onClick={() => {
+                    if (!materielActif) return;
+
                     router.push(
                       `/plans-preventifs/nouveau?idMateriel=${materiel.idMateriel}`,
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+                    );
+                  }}
+                  className={[
+                    'rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black transition',
+                    materielActif
+                      ? 'text-slate-700 hover:bg-slate-100'
+                      : 'cursor-not-allowed text-slate-400 opacity-60',
+                  ].join(' ')}
                 >
                   + Nouveau plan
                 </button>
@@ -491,7 +519,7 @@ export default function MaterielDetailCard({
                     ? 'Génération...'
                     : canGenerateFromModel
                       ? 'Générer depuis modèle'
-                      : 'Déjà généré'}
+                      : 'Indisponible'}
                 </button>
               </div>
             </div>
@@ -558,45 +586,7 @@ export default function MaterielDetailCard({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="min-w-0">
-      <div className="mb-3 flex items-center gap-3">
-        <div className="h-2 w-2 rounded-full bg-[#06475a]" />
-
-        <h2 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">
-          {title}
-        </h2>
-      </div>
-
-      <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function FieldGrid({ children }: { children: ReactNode }) {
-  return (
-    <div className="grid min-w-0 gap-x-8 gap-y-4 md:grid-cols-2">
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="grid min-w-0 grid-cols-[minmax(130px,0.75fr)_minmax(0,1fr)] items-start gap-3 border-b border-slate-200/70 pb-3 last:border-b-0">
-      <p className="min-w-0 text-sm font-bold text-slate-500">{label}</p>
-
-      <div className="min-w-0 break-words whitespace-normal text-sm font-black leading-6 text-slate-900">
-        {value || '—'}
-      </div>
-    </div>
-  );
-}
-
-function OptionalField({
+function OptionalReadField({
   label,
   value,
 }: {
@@ -605,7 +595,7 @@ function OptionalField({
 }) {
   if (!hasValue(value)) return null;
 
-  return <Field label={label} value={value} />;
+  return <AppReadField label={label} value={value} />;
 }
 
 function ActifBadge({ actif }: { actif?: boolean | null }) {
@@ -681,7 +671,9 @@ function PreventifCarlTable({
         <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead>
             <tr className="bg-[#06475a] text-white">
-              <th className="px-4 py-3 text-left font-black">Plan préventif</th>
+              <th className="px-4 py-3 text-left font-black">
+                Plan préventif
+              </th>
               <th className="px-4 py-3 text-left font-black">Gamme / FM</th>
               <th className="px-4 py-3 text-left font-black">Titre</th>
               <th className="px-4 py-3 text-left font-black">État</th>

@@ -328,7 +328,178 @@ export class ArborescenceService {
   /* =====================================================
      TREES PUBLICS
   ===================================================== */
+async getFamillesTree() {
+  type FamilleNodeType =
+    | 'ROOT'
+    | 'FAMILLE'
+    | 'MODELE'
+    | 'ARTICLE'
+    | 'GROUP_MODELES'
+    | 'GROUP_ARTICLES';
 
+  type FamilleNode = {
+    key: string;
+    id: number;
+    type: FamilleNodeType;
+    code: string | null;
+    libelle: string | null;
+    children: FamilleNode[];
+  };
+
+  const familles = await this.prisma.famille.findMany({
+    where: {
+      actif: true,
+    },
+    orderBy: [{ libelle: 'asc' }, { idFamille: 'asc' }],
+  });
+
+  const modeles = await this.prisma.modele.findMany({
+    where: {
+      idFamille: {
+        not: null,
+      },
+    },
+    orderBy: [{ libelle: 'asc' }, { code: 'asc' }],
+  });
+
+  const articles = await this.prisma.article.findMany({
+    where: {
+      idFamille: {
+        not: null,
+      },
+    },
+    orderBy: [{ designation: 'asc' }, { reference: 'asc' }],
+  });
+
+  const familleMap = new Map<number, (typeof familles)[number]>();
+  const childrenByParent = new Map<number, number[]>();
+  const modelesByFamille = new Map<number, typeof modeles>();
+  const articlesByFamille = new Map<number, typeof articles>();
+
+  for (const famille of familles) {
+    familleMap.set(famille.idFamille, famille);
+
+    if (famille.parent_id) {
+      if (!childrenByParent.has(famille.parent_id)) {
+        childrenByParent.set(famille.parent_id, []);
+      }
+
+      childrenByParent.get(famille.parent_id)!.push(famille.idFamille);
+    }
+  }
+
+  for (const modele of modeles) {
+    if (!modele.idFamille) continue;
+
+    if (!modelesByFamille.has(modele.idFamille)) {
+      modelesByFamille.set(modele.idFamille, []);
+    }
+
+    modelesByFamille.get(modele.idFamille)!.push(modele);
+  }
+
+  for (const article of articles) {
+    const item = article as any;
+
+    if (!item.idFamille) continue;
+
+    if (!articlesByFamille.has(item.idFamille)) {
+      articlesByFamille.set(item.idFamille, []);
+    }
+
+    articlesByFamille.get(item.idFamille)!.push(article);
+  }
+
+  const buildFamilleNode = (
+    idFamille: number,
+    visited = new Set<number>(),
+  ): FamilleNode | null => {
+    const famille = familleMap.get(idFamille);
+
+    if (!famille) return null;
+
+    if (visited.has(idFamille)) {
+      return {
+        key: `FAMILLE-${famille.idFamille}`,
+        id: famille.idFamille,
+        type: 'FAMILLE',
+        code: famille.code,
+        libelle: famille.libelle,
+        children: [],
+      };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(idFamille);
+
+    const sousFamilles = (childrenByParent.get(idFamille) ?? [])
+      .map((childId) => buildFamilleNode(childId, nextVisited))
+      .filter((node): node is FamilleNode => Boolean(node));
+
+    const modeleNodes: FamilleNode[] = (
+      modelesByFamille.get(idFamille) ?? []
+    ).map((modele) => ({
+      key: `MODELE-${modele.idModele}`,
+      id: modele.idModele,
+      type: 'MODELE',
+      code: modele.code,
+      libelle: modele.libelle || modele.code || `Modèle ${modele.idModele}`,
+      children: [],
+    }));
+
+    const articleNodes: FamilleNode[] = (
+      articlesByFamille.get(idFamille) ?? []
+    ).map((article) => {
+      const item = article as any;
+
+      return {
+        key: `ARTICLE-${item.idArticle}`,
+        id: item.idArticle,
+        type: 'ARTICLE',
+        code: item.reference || item.code || `ART-${item.idArticle}`,
+        libelle:
+          item.designation ||
+          item.libelle ||
+          item.reference ||
+          item.code ||
+          `Article ${item.idArticle}`,
+        children: [],
+      };
+    });
+
+   return {
+  key: `FAMILLE-${famille.idFamille}`,
+  id: famille.idFamille,
+  type: 'FAMILLE',
+  code: famille.code,
+  libelle: famille.libelle,
+  children: [
+    ...sousFamilles,
+    ...modeleNodes,
+    ...articleNodes,
+  ],
+};
+  };
+
+  const racinesFamilles = familles
+    .filter(
+      (famille) =>
+        !famille.parent_id || !familleMap.has(famille.parent_id),
+    )
+    .map((famille) => buildFamilleNode(famille.idFamille))
+    .filter((node): node is FamilleNode => Boolean(node));
+
+  return [
+    {
+      key: 'ROOT-FAMILLES-BMT',
+      id: 0,
+      type: 'ROOT',
+      code: 'BMT',
+      libelle: 'BMT',
+      children: racinesFamilles,
+    },
+  ];
+}
   async getGeographiqueTree(): Promise<TreeNode[]> {
     const children = await this.buildPointStructureTree('GEOGRAPHIQUE');
 

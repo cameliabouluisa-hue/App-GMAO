@@ -62,6 +62,10 @@ export class ArborescenceController {
   getTechniqueTree(): Promise<TreeNode[]> {
     return this.arborescenceService.getTechniqueTree();
   }
+  @Get('familles/tree')
+getFamillesTree() {
+  return this.arborescenceService.getFamillesTree();
+}
 
   @Get('materiel/tree')
   getMaterielTree(): Promise<TreeNode[]> {

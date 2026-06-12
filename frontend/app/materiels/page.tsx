@@ -90,13 +90,13 @@ export default function MaterielsPage() {
         materiel.code,
         materiel.libelle,
         materiel.numeroSerie,
-        materiel.modele?.code,
         materiel.modele?.libelle,
-        materiel.etat_materiel?.code,
-        materiel.etat_materiel?.libelle,
+        materiel.modele?.code,
         materiel.type_materiel?.libelle,
-        materiel.point_structure?.code,
+        materiel.etat_materiel?.libelle,
+        materiel.etat_materiel?.code,
         materiel.point_structure?.libelle,
+        materiel.point_structure?.code,
         materiel.positionActuelle,
       ]
         .filter(Boolean)
@@ -145,7 +145,7 @@ export default function MaterielsPage() {
     setActif('all');
   }
 
-  async function handleDelete(materiel: Materiel) {
+  async function handleDeactivate(materiel: Materiel) {
     const confirmed = window.confirm(
       `Voulez-vous vraiment désactiver le matériel ${
         materiel.code || materiel.idMateriel
@@ -164,7 +164,7 @@ export default function MaterielsPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Impossible de désactiver ce matériel.",
+          : 'Impossible de désactiver ce matériel.',
       );
     } finally {
       setActionLoadingId(null);
@@ -190,7 +190,7 @@ export default function MaterielsPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Impossible de réactiver ce matériel.",
+          : 'Impossible de réactiver ce matériel.',
       );
     } finally {
       setActionLoadingId(null);
@@ -400,13 +400,13 @@ export default function MaterielsPage() {
                         </td>
 
                         <td className="px-5 py-4 align-middle">
-                          <p className="text-sm font-bold text-slate-800">
+                          <p className="max-w-[260px] break-words text-sm font-bold text-slate-800">
                             {materiel.libelle || '—'}
                           </p>
                         </td>
 
                         <td className="px-5 py-4 align-middle">
-                          <p className="text-sm font-bold text-slate-800">
+                          <p className="max-w-[240px] break-words text-sm font-bold text-slate-800">
                             {materiel.modele?.libelle ||
                               materiel.modele?.code ||
                               '—'}
@@ -453,7 +453,7 @@ export default function MaterielsPage() {
                                 <button
                                   type="button"
                                   disabled={isActionLoading}
-                                  onClick={() => handleDelete(materiel)}
+                                  onClick={() => handleDeactivate(materiel)}
                                   className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                                   title="Désactiver"
                                 >

@@ -1,10 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Building2, FolderTree, Wrench } from 'lucide-react';
+import { Building, FolderTree, Wrench } from 'lucide-react';
 
 import TreeView from './TreeView';
-import { ArborescenceMode, ArborescenceNode } from '../types/arborescence.types';
+import {
+  ArborescenceMode,
+  ArborescenceNode,
+} from '../types/arborescence.types';
 
 type Props = {
   geographique: ArborescenceNode[];
@@ -33,6 +36,7 @@ export default function ArborescenceTabs({
           <p className="text-xs font-bold uppercase tracking-[0.35em] text-slate-400">
             Module équipements
           </p>
+
           <h2 className="mt-1 text-2xl font-black text-slate-950">
             Vue arborescente
           </h2>
@@ -40,6 +44,7 @@ export default function ArborescenceTabs({
 
         <div className="grid grid-cols-3 rounded-2xl bg-slate-100 p-1">
           <button
+            type="button"
             onClick={() => setMode('GEOGRAPHIQUE')}
             className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${
               mode === 'GEOGRAPHIQUE'
@@ -47,11 +52,12 @@ export default function ArborescenceTabs({
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <Building2 size={18} />
+            <Building size={18} />
             Géographique
           </button>
 
           <button
+            type="button"
             onClick={() => setMode('TECHNIQUE')}
             className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${
               mode === 'TECHNIQUE'
@@ -64,6 +70,7 @@ export default function ArborescenceTabs({
           </button>
 
           <button
+            type="button"
             onClick={() => setMode('FAMILLE')}
             className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${
               mode === 'FAMILLE'
