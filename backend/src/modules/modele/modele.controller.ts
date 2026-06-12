@@ -39,6 +39,11 @@ export class ModeleController {
     return this.modeleService.update(id, updateModeleDto);
   }
 
+  @Patch(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number) {
+    return this.modeleService.restore(id);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.modeleService.remove(id);

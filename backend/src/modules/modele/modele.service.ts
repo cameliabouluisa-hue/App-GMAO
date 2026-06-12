@@ -50,6 +50,17 @@ export class ModeleService {
       article: true,
 
       plan_preventif_predefini: {
+        include: {
+          ppp_declencheur: {
+            include: {
+              gamme: true,
+              point_mesure: true,
+            },
+            orderBy: {
+              priorite: 'asc',
+            },
+          },
+        },
         orderBy: {
           idPlanPreventifPredefini: 'desc',
         },
@@ -57,7 +68,19 @@ export class ModeleService {
 
       modele_plan_preventif_predefini: {
         include: {
-          plan_preventif_predefini: true,
+          plan_preventif_predefini: {
+            include: {
+              ppp_declencheur: {
+                include: {
+                  gamme: true,
+                  point_mesure: true,
+                },
+                orderBy: {
+                  priorite: 'asc',
+                },
+              },
+            },
+          },
         },
         orderBy: [
           { principal: 'desc' },
@@ -307,22 +330,26 @@ article: true,
       throw new NotFoundException('Modèle introuvable.');
     }
 
-    const isUsed =
-     existingModele._count.gamme > 0 ||
-existingModele._count.gamme_operation > 0 ||
-existingModele._count.materiel > 0 ||
-existingModele.article !== null ||
-existingModele._count.plan_preventif_declencheur > 0 ||
-existingModele._count.ppp_declencheur > 0;
+    const isUsed = false;
 
-    if (isUsed) {
+    if (false && isUsed) {
       throw new BadRequestException(
         'Impossible de supprimer ce modèle car il est déjà utilisé dans le système.',
       );
     }
 
-    return this.prisma.modele.delete({
+    return this.prisma.modele.update({
       where: { idModele },
+      data: { actif: false },
+    });
+  }
+
+  async restore(idModele: number) {
+    await this.findOne(idModele);
+
+    return this.prisma.modele.update({
+      where: { idModele },
+      data: { actif: true },
     });
   }
 
