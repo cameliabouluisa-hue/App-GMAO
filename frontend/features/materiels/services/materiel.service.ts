@@ -127,3 +127,13 @@ export async function getPointsStructure(): Promise<PointStructure[]> {
     return [];
   }
 }
+export async function genererPlanPreventifDepuisPPP(
+  idMateriel: number,
+  idPlanPreventifPredefini: number,
+): Promise<Materiel> {
+  const res = await axios.post(
+    `/materiels/${idMateriel}/generer-plan-preventif/${idPlanPreventifPredefini}`,
+  );
+
+  return res.data;
+}

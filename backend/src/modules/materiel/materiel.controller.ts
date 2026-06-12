@@ -41,6 +41,13 @@ findEtatsMateriel() {
 findTypesMateriel() {
   return this.materielService.findTypesMateriel();
 }
+@Post(':id/generer-plan-preventif/:idPPP')
+genererPlanPreventifDepuisPPP(
+  @Param('id', ParseIntPipe) id: number,
+  @Param('idPPP', ParseIntPipe) idPPP: number,
+) {
+  return this.materielService.genererPlanPreventifDepuisPPP(id, idPPP);
+}
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.materielService.findOne(id);

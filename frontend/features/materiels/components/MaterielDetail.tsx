@@ -1,22 +1,18 @@
 
 
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
   Activity,
-  AlertTriangle,
   CalendarClock,
-  CheckCircle2,
   Gauge,
   HardDrive,
-  Layers3,
-  MapPin,
   Pencil,
   RefreshCcw,
-  ShieldCheck,
-  Wrench,
 } from 'lucide-react';
-
+import { useRouter } from 'next/navigation';
+import { genererPlanPreventifDepuisPPP } from '@/features/materiels/services/materiel.service';
 import type { Materiel } from '@/features/materiels/types/materiel';
 
 export type MaterielDetail = Materiel;
@@ -24,28 +20,35 @@ export type MaterielDetail = Materiel;
 type Props = {
   materiel: MaterielDetail;
   refreshing?: boolean;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   onEdit: () => void;
 };
 
+type TabId = 'general' | 'preventif' | 'mesures' | 'interventions';
+
+const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: 'general', label: 'Général', icon: <HardDrive size={17} /> },
+  { id: 'preventif', label: 'Préventif', icon: <CalendarClock size={17} /> },
+  { id: 'mesures', label: 'Mesures', icon: <Gauge size={17} /> },
+  { id: 'interventions', label: 'Interventions', icon: <Activity size={17} /> },
+];
+
+
+function hasValue(value: unknown) {
+  return value !== null && value !== undefined && value !== '';
+}
+
 function formatValue(value: string | number | boolean | null | undefined) {
-  if (value === null || value === undefined || value === '') return '—';
+  if (!hasValue(value)) return '—';
   if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
   return String(value);
 }
 
 function formatDate(value?: string | null) {
   if (!value) return '—';
-
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(date);
+  return new Intl.DateTimeFormat('fr-FR').format(date);
 }
 
 function getEtatLabel(materiel: MaterielDetail) {
@@ -62,7 +65,6 @@ function getTypeLabel(materiel: MaterielDetail) {
 
 function getModeleLabel(materiel: MaterielDetail) {
   const modele = materiel.modele;
-
   if (!modele) return 'Aucun modèle';
 
   if (modele.code && modele.libelle) {
@@ -74,8 +76,7 @@ function getModeleLabel(materiel: MaterielDetail) {
 
 function getArticleLabel(materiel: MaterielDetail) {
   const article = materiel.modele?.article;
-
-  if (!article) return '—';
+  if (!article) return null;
 
   if (article.reference && article.designation) {
     return `${article.reference} — ${article.designation}`;
@@ -91,8 +92,8 @@ function getArticleLabel(materiel: MaterielDetail) {
 }
 
 function getPointStructureLabel(materiel: MaterielDetail) {
+  
   const point = materiel.point_structure;
-
   if (!point) return 'Aucun point de structure';
 
   if (point.code && point.libelle) {
@@ -104,8 +105,7 @@ function getPointStructureLabel(materiel: MaterielDetail) {
 
 function getParentLabel(materiel: MaterielDetail) {
   const parent = materiel.materielParent;
-
-  if (!parent) return 'Aucun matériel parent';
+  if (!parent) return null;
 
   if (parent.code && parent.libelle) {
     return `${parent.code} — ${parent.libelle}`;
@@ -122,27 +122,8 @@ function getPositionLabel(position?: string | null) {
   return 'Non définie';
 }
 
-function getEtatBadgeClass(code?: string | null) {
-  if (code === 'VALIDE') return 'bg-emerald-50 text-emerald-700';
-  if (code === 'EN_PANNE') return 'bg-red-50 text-red-700';
-  if (code === 'EN_REVISION') return 'bg-orange-50 text-orange-700';
-  if (code === 'AU_REBUT' || code === 'ANNULE') {
-    return 'bg-slate-100 text-slate-500';
-  }
-
-  return 'bg-blue-50 text-blue-700';
-}
-
-function formatPointMesureValue(
-  value?: number | string | null,
-  unite?: string | null,
-) {
-  if (value === null || value === undefined || value === '') return '—';
-  return `${value}${unite ? ` ${unite}` : ''}`;
-}
-
 function formatCriticite(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return null;
 
   const labels: Record<string, string> = {
     FAIBLE: 'Faible',
@@ -154,18 +135,9 @@ function formatCriticite(value?: string | null) {
   return labels[value] || value;
 }
 
-function formatNiveauMaintenance(value?: string | null) {
-  if (!value) return '—';
-
-  const labels: Record<string, string> = {
-    NIVEAU_1: 'Niveau 1',
-    NIVEAU_2: 'Niveau 2',
-    NIVEAU_3: 'Niveau 3',
-    NIVEAU_4: 'Niveau 4',
-    NIVEAU_5: 'Niveau 5',
-  };
-
-  return labels[value] || value;
+function formatPointValue(value?: number | string | null, unite?: string | null) {
+  if (!hasValue(value)) return '—';
+  return `${value}${unite ? ` ${unite}` : ''}`;
 }
 
 export default function MaterielDetailCard({
@@ -174,68 +146,127 @@ export default function MaterielDetailCard({
   onRefresh,
   onEdit,
 }: Props) {
+  const [activeTab, setActiveTab] = useState<TabId>('general');
+  const [generatingId, setGeneratingId] = useState<number | null>(null);
+
   const code = materiel.code || `MAT-${materiel.idMateriel}`;
   const libelle = materiel.libelle || 'Matériel sans libellé';
-
-  const etatLabel = getEtatLabel(materiel);
-  const typeLabel = getTypeLabel(materiel);
-  const modeleLabel = getModeleLabel(materiel);
-  const articleLabel = getArticleLabel(materiel);
-  const pointStructureLabel = getPointStructureLabel(materiel);
-  const parentLabel = getParentLabel(materiel);
-
+const router = useRouter();
   const modele = materiel.modele;
   const pointStructure = materiel.point_structure;
 
-  const pointsMesure = materiel.points_mesure ?? [];
-  const plansReels = materiel.plan_preventif ?? [];
   const plansModele = materiel.plansPreventifsPredefinisModele ?? [];
-  const sousMateriels = materiel.sousMateriels ?? [];
+  const plansReels = materiel.plan_preventif ?? [];
+  const pointsMesure = materiel.points_mesure ?? [];
   const interventions = materiel.intervention ?? [];
+  const sousMateriels = materiel.sousMateriels ?? [];
 
+  async function handleGeneratePlan(idPPP: number) {
+    try {
+      setGeneratingId(idPPP);
+      await genererPlanPreventifDepuisPPP(materiel.idMateriel, idPPP);
+      await onRefresh();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Erreur lors de la génération du plan préventif.',
+      );
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+function getGammeLabel(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+  const gamme = declencheur?.gamme;
+
+  if (!gamme) return '—';
+
+  if (gamme.code && gamme.libelle) {
+    return `${gamme.code} — ${gamme.libelle}`;
+  }
+
+  return gamme.libelle || gamme.code || '—';
+}
+
+function getConditionDeclenchement(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+
+  if (!declencheur) return '—';
+
+  if (declencheur.typeDeclencheur === 'TEMPS') {
+    return `Tous les ${declencheur.periodiciteValeur ?? '—'} ${
+      declencheur.periodiciteUnite ?? ''
+    }`;
+  }
+
+  if (declencheur.typeDeclencheur === 'COMPTEUR') {
+    return `${declencheur.point_mesure?.libelle || 'Compteur'} ${
+      declencheur.operateur || '>='
+    } ${declencheur.seuilValeur ?? declencheur.prochainLancementValeur ?? '—'} ${
+      declencheur.point_mesure?.unite || ''
+    }`;
+  }
+
+  return declencheur.typeDeclencheur;
+}
+
+function getProchainLancement(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+
+  if (!declencheur) return '—';
+
+  if (declencheur.prochainLancementDate) {
+    return formatDate(declencheur.prochainLancementDate);
+  }
+
+  if (declencheur.prochainLancementValeur) {
+    return `${declencheur.prochainLancementValeur} ${
+      declencheur.point_mesure?.unite || ''
+    }`;
+  }
+
+  return '—';
+}
+const firstAvailablePPP = plansModele.find(
+  (ppp) =>
+    !plansReels.some(
+      (plan) =>
+        plan.idPlanPreventifPredefiniSource ===
+        ppp.idPlanPreventifPredefini,
+    ),
+);
+
+const canGenerateFromModel = Boolean(firstAvailablePPP);
   return (
-    <>
-      <section className="mb-5 overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-5 px-6 py-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-cyan-50 text-[#06475a]">
-              <HardDrive size={28} />
+    <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 bg-gradient-to-r from-[#06475a] to-[#0b5d73] px-6 py-5 text-white">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15">
+              <HardDrive size={29} />
             </div>
 
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.28em] text-slate-400">
-                Détail du matériel
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-white/60">
+                Fiche matériel
               </p>
 
               <div className="mt-1 flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950">
-                  {code}
-                </h1>
+                <h1 className="text-3xl font-black tracking-tight">{code}</h1>
 
-                <span
-                  className={`rounded-xl px-3 py-1 text-sm font-bold ${getEtatBadgeClass(
-                    materiel.etat_materiel?.code,
-                  )}`}
-                >
-                  {etatLabel}
+                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
+                  {getEtatLabel(materiel)}
                 </span>
 
-                <span
-                  className={`rounded-xl px-3 py-1 text-sm font-bold ${
-                    materiel.actif === false
-                      ? 'bg-slate-200 text-slate-600'
-                      : 'bg-emerald-50 text-emerald-700'
-                  }`}
-                >
+                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
                   {materiel.actif === false ? 'Inactif' : 'Actif'}
                 </span>
               </div>
 
-              <p className="mt-2 text-sm font-bold text-slate-500">
-                {libelle} · Série :{' '}
-                <span className="text-slate-800">
-                  {formatValue(materiel.numeroSerie)}
-                </span>
+              <p className="mt-2 text-sm font-semibold text-white/75">
+                {libelle}
+                {materiel.numeroSerie && <> · Série : {materiel.numeroSerie}</>}
               </p>
             </div>
           </div>
@@ -245,7 +276,7 @@ export default function MaterielDetailCard({
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-bold text-white transition hover:bg-white/25 disabled:opacity-60"
             >
               <RefreshCcw
                 size={16}
@@ -257,442 +288,497 @@ export default function MaterielDetailCard({
             <button
               type="button"
               onClick={onEdit}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-5 text-sm font-bold text-white shadow-md shadow-[#06475a]/20 transition hover:bg-[#043747]"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-bold text-[#06475a] transition hover:bg-slate-100"
             >
               <Pencil size={16} />
               Modifier
             </button>
           </div>
         </div>
-      </section>
+      </div>
 
-      <div className="space-y-5">
-        <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-          <div className="space-y-5">
-            <Card title="Généralités" icon={<Layers3 size={19} />}>
-              <InfoGrid>
-                <Info label="Code" value={code} />
-                <Info label="Libellé" value={libelle} />
-                <Info label="N° de série" value={formatValue(materiel.numeroSerie)} />
-                <Info label="Type matériel" value={typeLabel} />
-                <Info label="État" value={etatLabel} />
-                <Info
-                  label="Statut"
-                  value={materiel.actif === false ? 'Inactif' : 'Actif'}
-                />
-              </InfoGrid>
-            </Card>
+      <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+        <div className="flex gap-2 overflow-x-auto">
+          {tabs.map((tab) => {
+            const active = activeTab === tab.id;
 
-            <Card title="Modèle et classification" icon={<Wrench size={19} />}>
-              <InfoGrid>
-                <Info label="Modèle" value={modeleLabel} />
-                <Info label="Article lié au modèle" value={articleLabel} />
-                <Info
-                  label="Famille"
-                  value={formatValue(modele?.famille?.libelle)}
-                />
-                <Info
-                  label="Type équipement"
-                  value={formatValue(modele?.type_equipement?.libelle)}
-                />
-                <Info
-                  label="Fabricant"
-                  value={formatValue(modele?.fabricant?.nom)}
-                />
-                <Info
-                  label="Marque"
-                  value={formatValue(modele?.marque?.libelle)}
-                />
-                <Info
-                  label="Référence constructeur"
-                  value={formatValue(modele?.referenceConstructeur)}
-                />
-                <Info label="Version" value={formatValue(modele?.version)} />
-                <Info
-                  label="Criticité"
-                  value={formatCriticite(modele?.criticite)}
-                />
-                <Info
-                  label="Niveau maintenance"
-                  value={formatNiveauMaintenance(modele?.niveauMaintenance)}
-                />
-                <Info
-                  label="Réparable"
-                  value={formatValue(modele?.reparable)}
-                />
-                <Info
-                  label="Durée de vie"
-                  value={
-                    modele?.dureeVie
-                      ? `${modele.dureeVie} mois`
-                      : '—'
-                  }
-                />
-              </InfoGrid>
-            </Card>
-
-            <Card title="Affectation" icon={<MapPin size={19} />}>
-              <InfoGrid>
-                <Info label="Point de structure" value={pointStructureLabel} />
-                <Info
-                  label="Type point"
-                  value={formatValue(pointStructure?.typePoint)}
-                />
-                <Info
-                  label="Organisation"
-                  value={formatValue(pointStructure?.organisation)}
-                />
-                <Info
-                  label="Responsable"
-                  value={formatValue(pointStructure?.responsable)}
-                />
-                <Info
-                  label="Centre de coût"
-                  value={formatValue(pointStructure?.centreCout)}
-                />
-                <Info
-                  label="Position actuelle"
-                  value={getPositionLabel(materiel.positionActuelle)}
-                />
-                <Info label="Matériel parent" value={parentLabel} />
-                <Info
-                  label="Sous-matériels"
-                  value={`${sousMateriels.length} élément(s)`}
-                />
-              </InfoGrid>
-
-              {sousMateriels.length > 0 && (
-                <div className="mt-5 space-y-3">
-                  {sousMateriels.map((item) => (
-                    <ListItem
-                      key={item.idMateriel}
-                      title={item.libelle || item.code || `MAT-${item.idMateriel}`}
-                      subtitle={item.code || 'Sans code'}
-                      badge={item.etat_materiel?.libelle || item.etat_materiel?.code || '—'}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card title="Points de mesure" icon={<Gauge size={19} />}>
-              {pointsMesure.length === 0 ? (
-                <EmptyBlock text="Aucun point de mesure rattaché à ce matériel." />
-              ) : (
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {pointsMesure.map((point) => (
-                    <div
-                      key={point.idPointMesure}
-                      className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-extrabold text-slate-900">
-                            {point.code}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-slate-500">
-                            {point.libelle}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`rounded-xl px-3 py-1 text-xs font-black ${
-                            point.actif === false
-                              ? 'bg-slate-200 text-slate-500'
-                              : 'bg-emerald-50 text-emerald-700'
-                          }`}
-                        >
-                          {point.actif === false ? 'Inactif' : 'Actif'}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <MiniInfo label="Type" value={formatValue(point.type)} />
-                        <MiniInfo label="Unité" value={formatValue(point.unite)} />
-                        <MiniInfo
-                          label="Dernière valeur"
-                          value={formatPointMesureValue(
-                            point.derniereValeur,
-                            point.unite,
-                          )}
-                        />
-                        <MiniInfo
-                          label="Dernier relevé"
-                          value={formatDate(point.derniereDate)}
-                        />
-                        <MiniInfo
-                          label="Surveillance min."
-                          value={formatPointMesureValue(
-                            point.surveillanceMin,
-                            point.unite,
-                          )}
-                        />
-                        <MiniInfo
-                          label="Surveillance max."
-                          value={formatPointMesureValue(
-                            point.surveillanceMax,
-                            point.unite,
-                          )}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card title="Préventif" icon={<CalendarClock size={19} />}>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <PreventifBlock
-                  title="Plans hérités du modèle"
-                  count={plansModele.length}
-                >
-                  {plansModele.length === 0 ? (
-                    <EmptyBlock text="Aucun plan préventif prédéfini hérité du modèle." />
-                  ) : (
-                    <div className="space-y-3">
-                      {plansModele.map((plan) => (
-                        <ListItem
-                          key={plan.idPlanPreventifPredefini}
-                          title={plan.titre || plan.code}
-                          subtitle={[
-                            plan.code,
-                            plan.typeDeclenchement,
-                            plan.organisation,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                          badge={plan.etat || '—'}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </PreventifBlock>
-
-                <PreventifBlock
-                  title="Plans rattachés au matériel"
-                  count={plansReels.length}
-                >
-                  {plansReels.length === 0 ? (
-                    <EmptyBlock text="Aucun plan préventif rattaché directement au matériel." />
-                  ) : (
-                    <div className="space-y-3">
-                      {plansReels.map((plan) => (
-                        <ListItem
-                          key={plan.idPlanPreventif}
-                          title={plan.libelle || plan.titre || plan.code || `Plan ${plan.idPlanPreventif}`}
-                          subtitle={[
-                            plan.code,
-                            plan.typeDeclenchement,
-                            plan.organisation,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                          badge={plan.etat || '—'}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </PreventifBlock>
-              </div>
-            </Card>
-
-            <Card title="Dernières interventions" icon={<Activity size={19} />}>
-              {interventions.length === 0 ? (
-                <EmptyBlock text="Aucune intervention enregistrée pour ce matériel." />
-              ) : (
-                <div className="space-y-3">
-                  {interventions.slice(0, 6).map((intervention) => (
-                    <ListItem
-                      key={intervention.idIntervention}
-                      title={
-                        intervention.code ||
-                        `Intervention ${intervention.idIntervention}`
-                      }
-                      subtitle={[
-                        intervention.typeMaintenance,
-                        formatDate(intervention.dateDebut),
-                        formatDate(intervention.dateFin),
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                      badge={intervention.etat || '—'}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-
-          <div className="space-y-5">
-            <Card title="Cycle de vie" icon={<ShieldCheck size={19} />}>
-              <div className="space-y-3">
-                <SideInfo label="État actuel" value={etatLabel} />
-                <SideInfo
-                  label="Mise en service"
-                  value={formatDate(materiel.dateMiseService)}
-                />
-                <SideInfo
-                  label="Dernier inventaire"
-                  value={formatDate(materiel.dateDernierInventaire)}
-                />
-                <SideInfo
-                  label="Date de rebut"
-                  value={formatDate(materiel.dateRebut)}
-                />
-                <SideInfo
-                  label="Motif rebut"
-                  value={formatValue(materiel.motifRebut)}
-                />
-              </div>
-            </Card>
-
-            <Card title="Garantie" icon={<CheckCircle2 size={19} />}>
-              <div className="space-y-3">
-                <SideInfo
-                  label="Durée garantie"
-                  value={
-                    modele?.garantieMois
-                      ? `${modele.garantieMois} mois`
-                      : '—'
-                  }
-                />
-                <SideInfo
-                  label="Fin prévisionnelle"
-                  value={formatDate(materiel.dateFinGarantiePrevisionnelle)}
-                />
-              </div>
-            </Card>
-
-            <Card title="Sécurité et criticité" icon={<AlertTriangle size={19} />}>
-              <div className="space-y-3">
-                <SideInfo
-                  label="Criticité modèle"
-                  value={formatCriticite(modele?.criticite)}
-                />
-                <SideInfo
-                  label="Criticité emplacement"
-                  value={formatValue(pointStructure?.criticite)}
-                />
-                <SideInfo
-                  label="Zone sensible"
-                  value={formatValue(pointStructure?.zoneSensible)}
-                />
-                <SideInfo
-                  label="Accès restreint"
-                  value={formatValue(pointStructure?.accesRestreint)}
-                />
-                <SideInfo
-                  label="EPI obligatoire"
-                  value={formatValue(pointStructure?.epiObligatoire)}
-                />
-              </div>
-            </Card>
-          </div>
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={[
+                  'inline-flex h-11 shrink-0 items-center gap-2 rounded-2xl px-4 text-sm font-black transition',
+                  active
+                    ? 'bg-white text-[#06475a] shadow-sm ring-1 ring-slate-200'
+                    : 'text-slate-500 hover:bg-white hover:text-slate-900',
+                ].join(' ')}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
-    </>
+
+      <div className="p-6">
+        {activeTab === 'general' && (
+          <div className="space-y-6">
+            <Section title="Généralités">
+              <FieldGrid>
+                <Field label="Code" value={code} />
+                <Field label="Libellé" value={libelle} />
+                <Field label="N° de série" value={formatValue(materiel.numeroSerie)} />
+                <Field label="Modèle" value={getModeleLabel(materiel)} />
+                <Field label="Type matériel" value={getTypeLabel(materiel)} />
+                <OptionalField label="Marque" value={modele?.marque?.libelle} />
+                <OptionalField label="Criticité" value={formatCriticite(modele?.criticite)} />
+                <OptionalField
+                  label="Réparable"
+                  value={
+                    modele?.reparable === null || modele?.reparable === undefined
+                      ? null
+                      : formatValue(modele.reparable)
+                  }
+                />
+              </FieldGrid>
+            </Section>
+
+            <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+              <Section title="Affectation">
+                <FieldGrid>
+                  <Field label="Organisation" value={pointStructure?.organisation || 'BMT'} />
+                  <Field label="Père géographique" value={getPointStructureLabel(materiel)} />
+                  <OptionalField label="Père principal" value={pointStructure?.libelle} />
+                  <OptionalField label="Père matériel" value={getParentLabel(materiel)} />
+                  <OptionalField label="Responsable" value={pointStructure?.responsable} />
+                  <OptionalField label="Centre de coût" value={pointStructure?.centreCout} />
+                  <Field
+                    label="Position actuelle"
+                    value={getPositionLabel(materiel.positionActuelle)}
+                  />
+                  <Field label="Sous-matériels" value={`${sousMateriels.length} élément(s)`} />
+                </FieldGrid>
+              </Section>
+
+              <Section title="Cycle de vie">
+                <div className="space-y-4">
+                  <Field label="État" value={getEtatLabel(materiel)} />
+                  <Field label="Dernier inventaire" value={formatDate(materiel.dateDernierInventaire)} />
+                  <Field label="Mise en service" value={formatDate(materiel.dateMiseService)} />
+                  <OptionalField
+                    label="Date rebut"
+                    value={materiel.dateRebut ? formatDate(materiel.dateRebut) : null}
+                  />
+                  <OptionalField label="Motif rebut" value={materiel.motifRebut} />
+                </div>
+              </Section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'preventif' && (
+  <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+      <div>
+        <h2 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">
+          Plans préventifs
+        </h2>
+        <p className="mt-1 text-xs font-semibold text-slate-400">
+          Liste des plans préventifs rattachés au matériel.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            router.push(`/plans-preventifs/nouveau?idMateriel=${materiel.idMateriel}`)
+          }
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+        >
+          + Nouveau plan
+        </button>
+
+        <button
+  type="button"
+  disabled={!canGenerateFromModel || generatingId !== null}
+  onClick={() => {
+    if (!firstAvailablePPP) return;
+    handleGeneratePlan(firstAvailablePPP.idPlanPreventifPredefini);
+  }}
+  className={[
+    'rounded-xl px-4 py-2 text-xs font-black transition',
+    canGenerateFromModel
+      ? 'bg-[#06475a] text-white hover:bg-[#043747]'
+      : 'cursor-not-allowed bg-slate-200 text-slate-400',
+  ].join(' ')}
+>
+  {generatingId !== null
+    ? 'Génération...'
+    : canGenerateFromModel
+      ? 'Générer depuis modèle'
+      : 'Déjà généré'}
+</button>
+      </div>
+    </div>
+
+   <PreventifCarlTable
+  plans={plansReels}
+  empty="Aucun plan préventif rattaché à ce matériel."
+  onOpenPlan={(idPlan) => router.push(`/plans-preventifs/${idPlan}`)}
+/>
+  </div>
+)}
+
+        {activeTab === 'mesures' && (
+  <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+      <div>
+        <h2 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">
+          Points de mesure
+        </h2>
+        <p className="mt-1 text-xs font-semibold text-slate-400">
+          Liste des points de mesure rattachés à ce matériel.
+        </p>
+      </div>
+    </div>
+
+   <MesuresCarlTable
+  points={pointsMesure}
+  empty="Aucun point de mesure rattaché à ce matériel."
+  onOpenPoint={(idPointMesure) =>
+    router.push(`/points-mesure/${idPointMesure}`)
+  }
+/>
+  </div>
+)}
+        {activeTab === 'interventions' && (
+          <DataPanel
+            title="Dernières interventions"
+            count={interventions.length}
+            empty="Aucune intervention enregistrée pour ce matériel."
+          >
+            {interventions.slice(0, 8).map((intervention) => (
+              <RowItem
+                key={intervention.idIntervention}
+                title={
+                  intervention.code ||
+                  `Intervention ${intervention.idIntervention}`
+                }
+                subtitle={[
+                  intervention.typeMaintenance,
+                  formatDate(intervention.dateDebut),
+                  formatDate(intervention.dateFin),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                badge={intervention.etat || '—'}
+              />
+            ))}
+          </DataPanel>
+        )}
+      </div>
+    </div>
   );
 }
 
-function Card({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-[#06475a]">
-          {icon}
-        </div>
-
-        <h2 className="text-lg font-extrabold text-slate-950">{title}</h2>
+    <section>
+      <div className="mb-3 flex items-center gap-3">
+        <div className="h-2 w-2 rounded-full bg-[#06475a]" />
+        <h2 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">
+          {title}
+        </h2>
       </div>
 
-      <div className="p-5">{children}</div>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+        {children}
+      </div>
     </section>
   );
 }
 
-function InfoGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-4 md:grid-cols-2">{children}</div>;
+function FieldGrid({ children }: { children: ReactNode }) {
+  return <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">{children}</div>;
 }
 
-function Info({ label, value }: { label: string; value: ReactNode }) {
+function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-        {label}
-      </p>
-      <div className="mt-2 text-sm font-extrabold text-slate-900">{value}</div>
+    <div className="grid grid-cols-[150px_1fr] items-start gap-3 border-b border-slate-200/70 pb-3 last:border-b-0">
+      <p className="text-sm font-bold text-slate-500">{label}</p>
+      <div className="text-sm font-black text-slate-900">{value}</div>
     </div>
   );
 }
 
-function SideInfo({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-        {label}
-      </p>
-      <div className="max-w-[180px] text-right text-sm font-extrabold text-slate-900">
-        {value}
-      </div>
-    </div>
-  );
+function OptionalField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: ReactNode | null;
+}) {
+  if (!hasValue(value)) return null;
+  return <Field label={label} value={value} />;
 }
 
-function MiniInfo({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-extrabold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function EmptyBlock({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-center text-sm font-bold text-slate-400">
-      {text}
-    </div>
-  );
-}
-
-function PreventifBlock({
+function DataPanel({
   title,
   count,
+  empty,
   children,
 }: {
   title: string;
   count: number;
+  empty: string;
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+    <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">
           {title}
-        </h3>
+        </h2>
 
-        <span className="rounded-xl bg-white px-3 py-1 text-xs font-black text-[#06475a]">
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#06475a] ring-1 ring-slate-200">
           {count}
         </span>
       </div>
 
-      {children}
+      {count === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-8 text-center text-sm font-bold text-slate-400">
+          {empty}
+        </div>
+      ) : (
+        <div className="space-y-3">{children}</div>
+      )}
+    </section>
+  );
+}
+function getGammeLabel(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+  const gamme = declencheur?.gamme;
+
+  if (!gamme) return '—';
+
+  if (gamme.code && gamme.libelle) {
+    return `${gamme.code} — ${gamme.libelle}`;
+  }
+
+  return gamme.libelle || gamme.code || '—';
+}
+
+function getConditionDeclenchement(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+
+  if (!declencheur) return '—';
+
+  if (declencheur.typeDeclencheur === 'TEMPS') {
+    return `Tous les ${declencheur.periodiciteValeur ?? '—'} ${
+      declencheur.periodiciteUnite ?? ''
+    }`;
+  }
+
+  if (declencheur.typeDeclencheur === 'COMPTEUR') {
+    return `${declencheur.point_mesure?.libelle || 'Compteur'} ${
+      declencheur.operateur || '>='
+    } ${declencheur.seuilValeur ?? declencheur.prochainLancementValeur ?? '—'} ${
+      declencheur.point_mesure?.unite || ''
+    }`;
+  }
+
+  return declencheur.typeDeclencheur;
+}
+
+function getProchainLancement(plan: any) {
+  const declencheur = plan.plan_preventif_declencheur?.[0];
+
+  if (!declencheur) return '—';
+
+  if (declencheur.prochainLancementDate) {
+    return formatDate(declencheur.prochainLancementDate);
+  }
+
+  if (declencheur.prochainLancementValeur) {
+    return `${declencheur.prochainLancementValeur} ${
+      declencheur.point_mesure?.unite || ''
+    }`;
+  }
+
+  return '—';
+}
+function PreventifCarlTable({
+  plans,
+  empty,
+  onOpenPlan,
+}: {
+  plans: any[];
+  empty: string;
+  onOpenPlan: (idPlan: number) => void;
+}) {
+  if (plans.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-10 text-center text-sm font-bold text-slate-400">
+        {empty}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-[#06475a] text-white">
+              <th className="px-4 py-3 text-left font-black">Plan préventif</th>
+              <th className="px-4 py-3 text-left font-black">Gamme / FM</th>
+              <th className="px-4 py-3 text-left font-black">Titre</th>
+              <th className="px-4 py-3 text-left font-black">État</th>
+              <th className="px-4 py-3 text-left font-black">
+                Condition de déclenchement
+              </th>
+              <th className="px-4 py-3 text-left font-black">
+                Prochain lancement
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {plans.map((plan, index) => (
+              <tr
+                key={plan.idPlanPreventif}
+                onClick={() => onOpenPlan(plan.idPlanPreventif)}
+                className={[
+                  'cursor-pointer border-b border-slate-100 transition hover:bg-cyan-50/70',
+                  index % 2 === 0 ? 'bg-white' : 'bg-slate-50',
+                ].join(' ')}
+              >
+                <td className="px-4 py-3 font-black text-slate-900">
+                  {plan.code || `PP-${plan.idPlanPreventif}`}
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-600">
+                  {getGammeLabel(plan)}
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-700">
+                  {plan.libelle || plan.titre || '—'}
+                </td>
+
+                <td className="px-4 py-3">
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                    {plan.etat || 'Actif'}
+                  </span>
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-600">
+                  {getConditionDeclenchement(plan)}
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-600">
+                  {getProchainLancement(plan)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+function MesuresCarlTable({
+  points,
+  empty,
+  onOpenPoint,
+}: {
+  points: any[];
+  empty: string;
+  onOpenPoint: (idPointMesure: number) => void;
+}) {
+  if (points.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-10 text-center text-sm font-bold text-slate-400">
+        {empty}
+      </div>
+    );
+  }
 
-function ListItem({
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-[#06475a] text-white">
+              <th className="px-4 py-3 text-left font-black">
+                Point de mesure
+              </th>
+              <th className="px-4 py-3 text-left font-black">Titre</th>
+              <th className="px-4 py-3 text-left font-black">Type</th>
+              <th className="px-4 py-3 text-left font-black">Actif</th>
+              <th className="px-4 py-3 text-left font-black">
+                Dernier relevé
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {points.map((point, index) => (
+              <tr
+                key={point.idPointMesure}
+                onClick={() => onOpenPoint(point.idPointMesure)}
+                className={[
+                  'cursor-pointer border-b border-slate-100 transition hover:bg-cyan-50/70',
+                  index % 2 === 0 ? 'bg-white' : 'bg-slate-50',
+                ].join(' ')}
+              >
+                <td className="px-4 py-3 font-black text-slate-900">
+                  {point.code || `PM-${point.idPointMesure}`}
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-700">
+                  {point.libelle || '—'}
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-600">
+                  {point.type || '—'}
+                </td>
+
+                <td className="px-4 py-3">
+                  <span
+                    className={[
+                      'rounded-full px-3 py-1 text-xs font-black',
+                      point.actif === false
+                        ? 'bg-slate-100 text-slate-500'
+                        : 'bg-emerald-50 text-emerald-700',
+                    ].join(' ')}
+                  >
+                    {point.actif === false ? 'Inactif' : 'Actif'}
+                  </span>
+                </td>
+
+                <td className="px-4 py-3 font-semibold text-slate-600">
+                  {point.derniereValeur
+                    ? `${point.derniereValeur}${point.unite ? ` ${point.unite}` : ''}`
+                    : '—'}
+
+                  {point.derniereDate && (
+                    <span className="block text-xs font-bold text-slate-400">
+                      {formatDate(point.derniereDate)}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function RowItem({
   title,
   subtitle,
   badge,
@@ -702,9 +788,9 @@ function ListItem({
   badge?: string;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-100 bg-white px-4 py-3">
+    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
       <div>
-        <p className="text-sm font-extrabold text-slate-900">{title}</p>
+        <p className="text-sm font-black text-slate-950">{title}</p>
         {subtitle && (
           <p className="mt-1 text-xs font-semibold text-slate-400">
             {subtitle}
@@ -713,10 +799,21 @@ function ListItem({
       </div>
 
       {badge && (
-        <span className="shrink-0 rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">
+        <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
           {badge}
         </span>
       )}
+    </div>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-extrabold text-slate-900">{value}</p>
     </div>
   );
 }

@@ -51,7 +51,7 @@ export type Marque = {
 
 export type TypeEquipement = {
   idTypeEquipement: number;
-  code: string;
+  code ?: string;
   libelle: string;
   description?: string | null;
   actif?: boolean;
@@ -124,7 +124,32 @@ export type PlanPreventif = {
   updatedAt?: string | null;
 
   plan_preventif_predefini?: PlanPreventifPredefini | null;
-  plan_preventif_declencheur?: PlanPreventifDeclencheur[];
+  
+
+plan_preventif_declencheur?: {
+  idPlanPreventifDeclencheur: number;
+  priorite?: number | null;
+  typeDeclencheur: string;
+  periodiciteValeur?: number | null;
+  periodiciteUnite?: string | null;
+  prochainLancementDate?: string | null;
+  prochainLancementValeur?: number | string | null;
+  operateur?: string | null;
+  seuilValeur?: number | string | null;
+
+  gamme?: {
+    idGamme: number;
+    code?: string | null;
+    libelle?: string | null;
+  } | null;
+
+  point_mesure?: {
+    idPointMesure: number;
+    code?: string | null;
+    libelle?: string | null;
+    unite?: string | null;
+  } | null;
+}[];
 };
 
 export type PointMesure = {
@@ -385,7 +410,7 @@ export type Intervention = {
 export type Materiel = {
   idMateriel: number;
 
-  code: string | null;
+  code: string | null ;
   libelle: string | null;
   numeroSerie: string | null;
 
@@ -471,3 +496,4 @@ export type ChangeEtatMaterielDto = {
   idEtat: number;
   motif?: string | null;
 };
+export type GenererPlanPreventifResponse = Materiel;

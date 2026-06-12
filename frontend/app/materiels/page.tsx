@@ -83,29 +83,23 @@ export default function MaterielsPage() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return materiels.filter((materiel) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        [
-          materiel.code,
-          materiel.libelle,
-          materiel.numeroSerie,
-          materiel.modele?.code,
-          materiel.modele?.libelle,
-          materiel.modele?.article?.reference,
-          materiel.modele?.article?.designation,
-          materiel.modele?.article?.libelle,
-          materiel.etat_materiel?.code,
-          materiel.etat_materiel?.libelle,
-          materiel.type_materiel?.code,
-          materiel.type_materiel?.libelle,
-          materiel.point_structure?.code,
-          materiel.point_structure?.libelle,
-          materiel.positionActuelle,
-        ]
-          .filter(Boolean)
-          .some((value) =>
-            String(value).toLowerCase().includes(normalizedSearch),
-          );
+      const matchesSearch = [
+  materiel.code,
+  materiel.libelle,
+  materiel.numeroSerie,
+  materiel.modele?.code,
+  materiel.modele?.libelle,
+  materiel.etat_materiel?.code,
+  materiel.etat_materiel?.libelle,
+  materiel.type_materiel?.libelle,
+  materiel.point_structure?.code,
+  materiel.point_structure?.libelle,
+  materiel.positionActuelle,
+]
+  .filter(Boolean)
+  .some((value) =>
+    String(value).toLowerCase().includes(normalizedSearch),
+  );
 
       const matchesStock =
         stockFilter === 'TOUS' ||
@@ -339,144 +333,107 @@ export default function MaterielsPage() {
             <EmptyState />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1150px] border-collapse text-left">
-                <thead>
-                  <tr className="bg-slate-50 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-                    <th className="px-5 py-4">Matériel</th>
-                    <th className="px-5 py-4">Modèle</th>
-                    <th className="px-5 py-4">État</th>
-                    <th className="px-5 py-4">Position</th>
-                    <th className="px-5 py-4">Affectation</th>
-                    <th className="px-5 py-4">Cycle de vie</th>
-                    <th className="px-5 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
+             <table className="w-full min-w-[1150px] border-collapse text-left">
+  <thead>
+    <tr className="bg-slate-50 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+      <th className="px-5 py-4">Matériel</th>
+      <th className="px-5 py-4">Libellé</th>
+      <th className="px-5 py-4">Modèle</th>
+      <th className="px-5 py-4">Type</th>
+      <th className="px-5 py-4">État</th>
+      <th className="px-5 py-4">Organisation</th>
+    
+      <th className="px-5 py-4 text-right">Actions</th>
+    </tr>
+  </thead>
 
-                <tbody className="divide-y divide-slate-100">
-                  {filteredMateriels.map((materiel) => (
-                    <tr
-                      key={materiel.idMateriel}
-                      className="transition hover:bg-slate-50/70"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#eefcff] text-[#0b3d4f]">
-                            <HardDrive size={20} />
-                          </div>
+  <tbody className="divide-y divide-slate-100">
+    {filteredMateriels.map((materiel) => (
+      <tr
+        key={materiel.idMateriel}
+        className="transition hover:bg-slate-50/70"
+      >
+        <td className="px-5 py-4">
+          <div className="flex items-center gap-3">
+            
 
-                          <div>
-                            <Link
-                              href={`/materiels/${materiel.idMateriel}`}
-                              className="text-sm font-black text-slate-950 hover:text-[#0b3d4f]"
-                            >
-                              {materiel.code || `MAT-${materiel.idMateriel}`}
-                            </Link>
+            <Link
+              href={`/materiels/${materiel.idMateriel}`}
+              className="text-sm font-black text-slate-950 hover:text-[#0b3d4f]"
+            >
+              {materiel.code || `MAT-${materiel.idMateriel}`}
+            </Link>
+          </div>
+        </td>
 
-                            <p className="mt-1 text-sm font-semibold text-slate-600">
-                              {materiel.libelle || 'Sans libellé'}
-                            </p>
+        <td className="px-5 py-4">
+          <p className="text-sm font-bold text-slate-800">
+            {materiel.libelle || '—'}
+          </p>
+        </td>
 
-                            <p className="mt-1 text-xs font-semibold text-slate-400">
-                              Série : {materiel.numeroSerie || '—'}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
+        <td className="px-5 py-4">
+          <p className="text-sm font-bold text-slate-800">
+            {materiel.modele?.libelle || materiel.modele?.code || '—'}
+          </p>
+        </td>
 
-                      <td className="px-5 py-4">
-                        <p className="text-sm font-bold text-slate-800">
-                          {materiel.modele?.libelle ||
-                            materiel.modele?.code ||
-                            '—'}
-                        </p>
+        <td className="px-5 py-4">
+          <p className="text-sm font-bold text-slate-800">
+            {materiel.type_materiel?.libelle ||
+              materiel.type_materiel?.libelle ||
+              'Matériel'}
+          </p>
+        </td>
 
-                        <p className="mt-1 text-xs font-semibold text-slate-400">
-                          Article :{' '}
-                          {materiel.modele?.article?.designation ||
-                            materiel.modele?.article?.libelle ||
-                            materiel.modele?.article?.reference ||
-                            '—'}
-                        </p>
-                      </td>
+        <td className="px-5 py-4">
+          <EtatBadge
+            code={materiel.etat_materiel?.code}
+            label={
+              materiel.etat_materiel?.libelle ||
+              materiel.etat_materiel?.code ||
+              'Sans état'
+            }
+          />
+        </td>
 
-                      <td className="px-5 py-4">
-                        <EtatBadge
-                          code={materiel.etat_materiel?.code}
-                          label={
-                            materiel.etat_materiel?.libelle ||
-                            materiel.etat_materiel?.code ||
-                            'Sans état'
-                          }
-                        />
-                      </td>
+        <td className="px-5 py-4">
+          <p className="text-sm font-bold text-slate-800">
+            {materiel.point_structure?.organisation || 'BMT'}
+          </p>
+        </td>
 
-                      <td className="px-5 py-4">
-                        <PositionBadge position={materiel.positionActuelle} />
+      
 
-                        <p className="mt-2 text-xs font-semibold text-slate-400">
-                          {materiel.gereEnStock
-                            ? 'Inventaire via stock'
-                            : 'Inventaire manuel'}
-                        </p>
-                      </td>
+        <td className="px-5 py-4">
+          <div className="flex justify-end gap-2">
+            <ActionButton
+              href={`/materiels/${materiel.idMateriel}`}
+              icon={<Eye size={16} />}
+              label="Voir"
+            />
 
-                      <td className="px-5 py-4">
-                        <p className="text-sm font-bold text-slate-800">
-                          {materiel.point_structure?.libelle || '—'}
-                        </p>
+            <ActionButton
+              href={`/materiels/${materiel.idMateriel}/modifier`}
+              icon={<Pencil size={16} />}
+              label="Modifier"
+            />
 
-                        <p className="mt-1 text-xs font-semibold text-slate-400">
-                          {materiel.point_structure?.code || 'Aucun point'}
-                        </p>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="space-y-1 text-xs font-semibold text-slate-500">
-                          <p>
-                            Mise en service :{' '}
-                            <span className="font-bold text-slate-700">
-                              {formatDate(materiel.dateMiseService)}
-                            </span>
-                          </p>
-
-                          <p>
-                            Dernier inventaire :{' '}
-                            <span className="font-bold text-slate-700">
-                              {formatDate(materiel.dateDernierInventaire)}
-                            </span>
-                          </p>
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="flex justify-end gap-2">
-                          <ActionButton
-                            href={`/materiels/${materiel.idMateriel}`}
-                            icon={<Eye size={16} />}
-                            label="Voir"
-                          />
-
-                          <ActionButton
-                            href={`/materiels/${materiel.idMateriel}/modifier`}
-                            icon={<Pencil size={16} />}
-                            label="Modifier"
-                          />
-
-                          <button
-                            type="button"
-                            disabled={actionLoading}
-                            onClick={() => handleDelete(materiel)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            title="Supprimer"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={() => handleDelete(materiel)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Supprimer"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
             </div>
           )}
         </div>

@@ -82,25 +82,18 @@ export class MaterielService {
     },
 
     plan_preventif: {
-      include: {
-        plan_preventif_predefini: true,
-        plan_preventif_declencheur: true,
-      },
-      orderBy: {
-        idPlanPreventif: 'desc',
-      },
-    },
-
+  include: {
     plan_preventif_declencheur: {
       include: {
-        plan_preventif: true,
         gamme: true,
         point_mesure: true,
       },
       orderBy: {
-        idPlanPreventifDeclencheur: 'desc',
+        priorite: 'asc',
       },
     },
+  },
+},
 
     intervention: {
       include: {
@@ -549,7 +542,101 @@ export class MaterielService {
 
     return this.formatMateriel(updatedMateriel);
   }
+async genererPlanPreventifDepuisPPP(
+  idMateriel: number,
+  idPlanPreventifPredefini: number,
+) {
+  const materiel = await this.findOne(idMateriel);
 
+  if (!materiel.idModele) {
+    throw new BadRequestException(
+      'Ce matériel n’a pas de modèle. Impossible de générer un plan préventif prédéfini.',
+    );
+  }
+
+  const ppp = await this.prisma.plan_preventif_predefini.findFirst({
+    where: {
+      idPlanPreventifPredefini,
+      actif: true,
+      OR: [
+        { idModele: materiel.idModele },
+        {
+          modele_plan_preventif_predefini: {
+            some: {
+              idModele: materiel.idModele,
+              actif: true,
+            },
+          },
+        },
+      ],
+    },
+    include: {
+      ppp_declencheur: true,
+    },
+  });
+
+  if (!ppp) {
+    throw new NotFoundException(
+      'Plan préventif prédéfini introuvable pour le modèle de ce matériel.',
+    );
+  }
+
+  const existing = await this.prisma.plan_preventif.findFirst({
+    where: {
+      idMateriel,
+      idPlanPreventifPredefiniSource: idPlanPreventifPredefini,
+    },
+  });
+
+  if (existing) {
+    throw new BadRequestException(
+      'Ce plan préventif a déjà été généré pour ce matériel.',
+    );
+  }
+
+  const plan = await this.prisma.plan_preventif.create({
+    data: {
+      code: `PP-${materiel.code || idMateriel}-${ppp.code}`,
+      libelle: ppp.titre || ppp.code,
+      etat: ppp.etat || 'ACTIF',
+      typeDeclenchement: ppp.typeDeclenchement,
+      organisation: ppp.organisation,
+      idMateriel,
+      idPlanPreventifPredefiniSource: ppp.idPlanPreventifPredefini,
+      actif: true,
+    },
+  });
+
+  for (const declencheur of ppp.ppp_declencheur) {
+    await this.prisma.plan_preventif_declencheur.create({
+      data: {
+        idPlanPreventif: plan.idPlanPreventif,
+        idPppDeclencheurSource: declencheur.idPppDeclencheur,
+        priorite: declencheur.priorite,
+        etat: declencheur.etat,
+        typeDeclencheur: declencheur.typeDeclencheur,
+        idGamme: declencheur.idGamme,
+        idMateriel,
+        idModele: materiel.idModele,
+        idPointMesure: declencheur.idPointMesure,
+        etatInterventionCible: declencheur.etatInterventionCible,
+        horizonJours: declencheur.horizonJours,
+        toleranceJours: declencheur.toleranceJours,
+        actualisation: declencheur.actualisation,
+        periodiciteValeur: declencheur.periodiciteValeur,
+        periodiciteUnite: declencheur.periodiciteUnite,
+        seuilValeur: declencheur.seuilValeur,
+        operateur: declencheur.operateur,
+        symptomeCode: declencheur.symptomeCode,
+        saisonnaliteDu: declencheur.saisonnaliteDu,
+        saisonnaliteAu: declencheur.saisonnaliteAu,
+        actif: declencheur.actif ?? true,
+      },
+    });
+  }
+
+  return this.findOne(idMateriel);
+}
   async findEtatsMateriel() {
     return this.prisma.etat_materiel.findMany({
       orderBy: {
