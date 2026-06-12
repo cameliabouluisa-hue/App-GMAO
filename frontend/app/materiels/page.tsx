@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  Activity,
-  Calendar,
   CheckCircle2,
   Eye,
   HardDrive,
@@ -24,6 +22,7 @@ import {
 import {
   deleteMateriel,
   getMateriels,
+  restoreMateriel,
 } from '@/features/materiels/services/materiel.service';
 
 import type { Materiel } from '@/features/materiels/types/materiel';
@@ -45,10 +44,14 @@ const POSITION_OPTIONS: Array<{ label: string; value: PositionFilter }> = [
   { label: 'Au rebut', value: 'AU_REBUT' },
 ];
 
+function isMaterielActif(materiel: Materiel) {
+  return materiel.actif !== false;
+}
+
 export default function MaterielsPage() {
   const [materiels, setMateriels] = useState<Materiel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   const [search, setSearch] = useState('');
@@ -84,22 +87,22 @@ export default function MaterielsPage() {
 
     return materiels.filter((materiel) => {
       const matchesSearch = [
-  materiel.code,
-  materiel.libelle,
-  materiel.numeroSerie,
-  materiel.modele?.code,
-  materiel.modele?.libelle,
-  materiel.etat_materiel?.code,
-  materiel.etat_materiel?.libelle,
-  materiel.type_materiel?.libelle,
-  materiel.point_structure?.code,
-  materiel.point_structure?.libelle,
-  materiel.positionActuelle,
-]
-  .filter(Boolean)
-  .some((value) =>
-    String(value).toLowerCase().includes(normalizedSearch),
-  );
+        materiel.code,
+        materiel.libelle,
+        materiel.numeroSerie,
+        materiel.modele?.code,
+        materiel.modele?.libelle,
+        materiel.etat_materiel?.code,
+        materiel.etat_materiel?.libelle,
+        materiel.type_materiel?.libelle,
+        materiel.point_structure?.code,
+        materiel.point_structure?.libelle,
+        materiel.positionActuelle,
+      ]
+        .filter(Boolean)
+        .some((value) =>
+          String(value).toLowerCase().includes(normalizedSearch),
+        );
 
       const matchesStock =
         stockFilter === 'TOUS' ||
@@ -110,10 +113,12 @@ export default function MaterielsPage() {
         positionFilter === 'TOUTES' ||
         materiel.positionActuelle === positionFilter;
 
+      const materielActif = isMaterielActif(materiel);
+
       const matchesActif =
         actif === 'all' ||
-        (actif === 'true' && Boolean(materiel.actif)) ||
-        (actif === 'false' && !Boolean(materiel.actif));
+        (actif === 'true' && materielActif) ||
+        (actif === 'false' && !materielActif);
 
       return matchesSearch && matchesStock && matchesPosition && matchesActif;
     });
@@ -122,7 +127,7 @@ export default function MaterielsPage() {
   const stats = useMemo(() => {
     return {
       total: materiels.length,
-      actifs: materiels.filter((materiel) => Boolean(materiel.actif)).length,
+      actifs: materiels.filter(isMaterielActif).length,
       stock: materiels.filter((materiel) => materiel.gereEnStock).length,
       terrain: materiels.filter(
         (materiel) => materiel.positionActuelle === 'SUR_TERRAIN',
@@ -142,7 +147,7 @@ export default function MaterielsPage() {
 
   async function handleDelete(materiel: Materiel) {
     const confirmed = window.confirm(
-      `Voulez-vous vraiment supprimer le matériel ${
+      `Voulez-vous vraiment désactiver le matériel ${
         materiel.code || materiel.idMateriel
       } ?`,
     );
@@ -150,7 +155,7 @@ export default function MaterielsPage() {
     if (!confirmed) return;
 
     try {
-      setActionLoading(true);
+      setActionLoadingId(materiel.idMateriel);
       setError('');
 
       await deleteMateriel(materiel.idMateriel);
@@ -159,10 +164,36 @@ export default function MaterielsPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Impossible de supprimer ce matériel. Il est peut-être utilisé dans une autre partie de l'application.",
+          : "Impossible de désactiver ce matériel.",
       );
     } finally {
-      setActionLoading(false);
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleRestore(materiel: Materiel) {
+    const confirmed = window.confirm(
+      `Voulez-vous vraiment réactiver le matériel ${
+        materiel.code || materiel.idMateriel
+      } ?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setActionLoadingId(materiel.idMateriel);
+      setError('');
+
+      await restoreMateriel(materiel.idMateriel);
+      await loadMateriels();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Impossible de réactiver ce matériel.",
+      );
+    } finally {
+      setActionLoadingId(null);
     }
   }
 
@@ -333,107 +364,122 @@ export default function MaterielsPage() {
             <EmptyState />
           ) : (
             <div className="overflow-x-auto">
-             <table className="w-full min-w-[1150px] border-collapse text-left">
-  <thead>
-    <tr className="bg-slate-50 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-      <th className="px-5 py-4">Matériel</th>
-      <th className="px-5 py-4">Libellé</th>
-      <th className="px-5 py-4">Modèle</th>
-      <th className="px-5 py-4">Type</th>
-      <th className="px-5 py-4">État</th>
-      <th className="px-5 py-4">Organisation</th>
-    
-      <th className="px-5 py-4 text-right">Actions</th>
-    </tr>
-  </thead>
+              <table className="w-full min-w-[1150px] border-collapse text-left">
+                <thead>
+                  <tr className="bg-slate-50 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+                    <th className="px-5 py-4">Code</th>
+                    <th className="px-5 py-4">Libellé</th>
+                    <th className="px-5 py-4">Modèle</th>
+                    <th className="px-5 py-4">Type</th>
+                    <th className="px-5 py-4">État</th>
+                    <th className="px-5 py-4">Actif</th>
+                    <th className="px-5 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
 
-  <tbody className="divide-y divide-slate-100">
-    {filteredMateriels.map((materiel) => (
-      <tr
-        key={materiel.idMateriel}
-        className="transition hover:bg-slate-50/70"
-      >
-        <td className="px-5 py-4">
-          <div className="flex items-center gap-3">
-            
+                <tbody className="divide-y divide-slate-100">
+                  {filteredMateriels.map((materiel) => {
+                    const materielActif = isMaterielActif(materiel);
+                    const isActionLoading =
+                      actionLoadingId === materiel.idMateriel;
 
-            <Link
-              href={`/materiels/${materiel.idMateriel}`}
-              className="text-sm font-black text-slate-950 hover:text-[#0b3d4f]"
-            >
-              {materiel.code || `MAT-${materiel.idMateriel}`}
-            </Link>
-          </div>
-        </td>
+                    return (
+                      <tr
+                        key={materiel.idMateriel}
+                        className={`transition hover:bg-slate-50/70 ${
+                          !materielActif ? 'bg-slate-50/40' : ''
+                        }`}
+                      >
+                        <td className="px-5 py-4 align-middle">
+                          <Link
+                            href={`/materiels/${materiel.idMateriel}`}
+                            className="text-sm font-black text-slate-950 hover:text-[#0b3d4f]"
+                          >
+                            {materiel.code || `MAT-${materiel.idMateriel}`}
+                          </Link>
+                        </td>
 
-        <td className="px-5 py-4">
-          <p className="text-sm font-bold text-slate-800">
-            {materiel.libelle || '—'}
-          </p>
-        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <p className="text-sm font-bold text-slate-800">
+                            {materiel.libelle || '—'}
+                          </p>
+                        </td>
 
-        <td className="px-5 py-4">
-          <p className="text-sm font-bold text-slate-800">
-            {materiel.modele?.libelle || materiel.modele?.code || '—'}
-          </p>
-        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <p className="text-sm font-bold text-slate-800">
+                            {materiel.modele?.libelle ||
+                              materiel.modele?.code ||
+                              '—'}
+                          </p>
+                        </td>
 
-        <td className="px-5 py-4">
-          <p className="text-sm font-bold text-slate-800">
-            {materiel.type_materiel?.libelle ||
-              materiel.type_materiel?.libelle ||
-              'Matériel'}
-          </p>
-        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <p className="text-sm font-bold text-slate-800">
+                            {materiel.type_materiel?.libelle || '—'}
+                          </p>
+                        </td>
 
-        <td className="px-5 py-4">
-          <EtatBadge
-            code={materiel.etat_materiel?.code}
-            label={
-              materiel.etat_materiel?.libelle ||
-              materiel.etat_materiel?.code ||
-              'Sans état'
-            }
-          />
-        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <EtatBadge
+                            code={materiel.etat_materiel?.code}
+                            label={
+                              materiel.etat_materiel?.libelle ||
+                              materiel.etat_materiel?.code ||
+                              'Sans état'
+                            }
+                          />
+                        </td>
 
-        <td className="px-5 py-4">
-          <p className="text-sm font-bold text-slate-800">
-            {materiel.point_structure?.organisation || 'BMT'}
-          </p>
-        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <ActifBadge actif={materielActif} />
+                        </td>
 
-      
+                        <td className="px-5 py-4 align-middle">
+                          <div className="flex justify-end gap-2">
+                            <ActionButton
+                              href={`/materiels/${materiel.idMateriel}`}
+                              icon={<Eye size={16} />}
+                              label="Voir"
+                            />
 
-        <td className="px-5 py-4">
-          <div className="flex justify-end gap-2">
-            <ActionButton
-              href={`/materiels/${materiel.idMateriel}`}
-              icon={<Eye size={16} />}
-              label="Voir"
-            />
+                            {materielActif && (
+                              <>
+                                <ActionButton
+                                  href={`/materiels/${materiel.idMateriel}/modifier`}
+                                  icon={<Pencil size={16} />}
+                                  label="Modifier"
+                                />
 
-            <ActionButton
-              href={`/materiels/${materiel.idMateriel}/modifier`}
-              icon={<Pencil size={16} />}
-              label="Modifier"
-            />
+                                <button
+                                  type="button"
+                                  disabled={isActionLoading}
+                                  onClick={() => handleDelete(materiel)}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                  title="Désactiver"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </>
+                            )}
 
-            <button
-              type="button"
-              disabled={actionLoading}
-              onClick={() => handleDelete(materiel)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-              title="Supprimer"
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        </td>
-      </tr>
-    ))}
-  </tbody>
-</table>
+                            {!materielActif && (
+                              <button
+                                type="button"
+                                disabled={isActionLoading}
+                                onClick={() => handleRestore(materiel)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Réactiver"
+                              >
+                                <RotateCcw size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -488,15 +534,15 @@ function EtatBadge({
   label: string;
 }) {
   const className =
-    code === 'VALIDE'
-      ? 'bg-emerald-50 text-emerald-700'
+    code === 'EN_SERVICE' || code === 'VALIDE'
+      ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
       : code === 'EN_PANNE'
-        ? 'bg-red-50 text-red-700'
-        : code === 'EN_REVISION'
-          ? 'bg-orange-50 text-orange-700'
+        ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
+        : code === 'EN_REVISION' || code === 'EN_MAINTENANCE'
+          ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
           : code === 'AU_REBUT' || code === 'ANNULE'
-            ? 'bg-slate-100 text-slate-600'
-            : 'bg-blue-50 text-blue-700';
+            ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+            : 'bg-blue-50 text-blue-700 ring-1 ring-blue-100';
 
   return (
     <span
@@ -507,34 +553,16 @@ function EtatBadge({
   );
 }
 
-function PositionBadge({ position }: { position?: string | null }) {
-  const label =
-    position === 'EN_STOCK'
-      ? 'En stock'
-      : position === 'SUR_TERRAIN'
-        ? 'Sur terrain'
-        : position === 'EN_ATELIER'
-          ? 'En atelier'
-          : position === 'AU_REBUT'
-            ? 'Au rebut'
-            : 'Non définie';
-
-  const className =
-    position === 'EN_STOCK'
-      ? 'bg-blue-50 text-blue-700'
-      : position === 'SUR_TERRAIN'
-        ? 'bg-emerald-50 text-emerald-700'
-        : position === 'EN_ATELIER'
-          ? 'bg-orange-50 text-orange-700'
-          : position === 'AU_REBUT'
-            ? 'bg-slate-100 text-slate-600'
-            : 'bg-slate-50 text-slate-500';
-
+function ActifBadge({ actif }: { actif: boolean }) {
   return (
     <span
-      className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-black ${className}`}
+      className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-black ${
+        actif
+          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+          : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
+      }`}
     >
-      {label}
+      {actif ? 'Actif' : 'Inactif'}
     </span>
   );
 }
@@ -584,14 +612,4 @@ function EmptyState() {
       </Link>
     </div>
   );
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '—';
-
-  try {
-    return new Intl.DateTimeFormat('fr-FR').format(new Date(value));
-  } catch {
-    return '—';
-  }
 }

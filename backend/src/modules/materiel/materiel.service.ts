@@ -922,4 +922,21 @@ async genererPlanPreventifDepuisPPP(
 
     return date;
   }
+  async restore(id: number) {
+  const materiel = await this.prisma.materiel.findUnique({
+    where: { idMateriel: id },
+  });
+
+  if (!materiel) {
+    throw new NotFoundException(`Matériel ${id} introuvable.`);
+  }
+
+  return this.prisma.materiel.update({
+    where: { idMateriel: id },
+    data: {
+      actif: true,
+    },
+    include: this.includeRelations,
+  });
+}
 }

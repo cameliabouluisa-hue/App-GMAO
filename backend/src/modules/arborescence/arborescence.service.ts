@@ -3,13 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import { PrismaService } from '../../prisma/prisma.service';
+import { AffecterMaterielDto } from './dto/affecter-materiel.dto';
 import { CreateLienArborescenceDto } from './dto/create-lien-arborescence.dto';
 import { MoveNodeDto } from './dto/move-node.dto';
-import { AffecterMaterielDto } from './dto/affecter-materiel.dto';
 
 type TypeArborescence = 'GEOGRAPHIQUE' | 'TECHNIQUE' | 'MATERIEL';
-type NodeType = 'POINT_STRUCTURE' | 'MATERIEL';
+type NodeType = 'ROOT' | 'POINT_STRUCTURE' | 'MATERIEL';
 
 export type TreeNode = {
   key: string;
@@ -24,7 +25,16 @@ export type TreeNode = {
 @Injectable()
 export class ArborescenceService {
   constructor(private readonly prisma: PrismaService) {}
- async affecterMateriel(dto: AffecterMaterielDto) {
+
+  /* =====================================================
+     AFFECTATION MATÉRIEL
+  ===================================================== */
+
+  async affecterMateriel(dto: AffecterMaterielDto) {
+   const typeArborescence = this.assertTypeArborescence(
+  dto.typeArborescence ?? 'GEOGRAPHIQUE',
+);
+
     const materiel = await this.prisma.materiel.findUnique({
       where: { idMateriel: dto.idMateriel },
     });
@@ -41,22 +51,34 @@ export class ArborescenceService {
       throw new NotFoundException('Point de structure introuvable.');
     }
 
-    if (point.typePoint !== dto.typeArborescence && dto.typeArborescence !== 'MATERIEL') {
+    if (
+      typeArborescence !== 'MATERIEL' &&
+      point.typePoint !== typeArborescence
+    ) {
       throw new BadRequestException(
-        `Le point sélectionné est de type ${point.typePoint}, pas ${dto.typeArborescence}.`,
+        `Le point sélectionné est de type ${point.typePoint}, pas ${typeArborescence}.`,
       );
     }
 
-    const affectationExistante = await this.prisma.lien_arborescence.findFirst({
+    if (typeArborescence === 'GEOGRAPHIQUE') {
+      await this.prisma.materiel.update({
+        where: { idMateriel: dto.idMateriel },
+        data: {
+          idPointStructure: dto.idPoint,
+        },
+      });
+    }
+
+    const lienExistant = await this.prisma.lien_arborescence.findFirst({
       where: {
-        typeArborescence: dto.typeArborescence,
+        typeArborescence,
         enfantType: 'MATERIEL',
         enfantMaterielId: dto.idMateriel,
         actif: true,
       },
     });
 
-    if (affectationExistante) {
+    if (lienExistant) {
       throw new BadRequestException(
         'Ce matériel est déjà affecté dans cette arborescence.',
       );
@@ -64,57 +86,115 @@ export class ArborescenceService {
 
     return this.prisma.lien_arborescence.create({
       data: {
-        typeArborescence: dto.typeArborescence,
+        typeArborescence,
         parentType: 'POINT_STRUCTURE',
         parentPointId: dto.idPoint,
         parentMaterielId: null,
         enfantType: 'MATERIEL',
         enfantPointId: null,
         enfantMaterielId: dto.idMateriel,
-        ordre: dto.ordre,
+        ordre: dto.ordre ?? null,
         actif: true,
       },
     });
   }
 
-  async desaffecterMateriel(idMateriel: number, typeArborescence?: string) {
-    const lien = await this.prisma.lien_arborescence.findFirst({
+  async desaffecterMateriel(
+    idMateriel: number,
+    typeArborescence?: string,
+  ) {
+    const type = typeArborescence
+      ? this.assertTypeArborescence(typeArborescence)
+      : undefined;
+
+    const materiel = await this.prisma.materiel.findUnique({
+      where: { idMateriel },
+    });
+
+    if (!materiel) {
+      throw new NotFoundException('Matériel introuvable.');
+    }
+
+    if (!type || type === 'GEOGRAPHIQUE') {
+      await this.prisma.materiel.update({
+        where: { idMateriel },
+        data: {
+          idPointStructure: null,
+        },
+      });
+    }
+
+    await this.prisma.lien_arborescence.updateMany({
       where: {
         enfantType: 'MATERIEL',
         enfantMaterielId: idMateriel,
         actif: true,
-        ...(typeArborescence ? { typeArborescence } : {}),
+        ...(type ? { typeArborescence: type } : {}),
+      },
+      data: {
+        actif: false,
       },
     });
 
-    if (!lien) {
-      throw new NotFoundException('Affectation active introuvable.');
-    }
-
-    return this.prisma.lien_arborescence.update({
-      where: { idLien: lien.idLien },
-      data: { actif: false },
-    });
+    return {
+      message: 'Matériel désaffecté avec succès.',
+    };
   }
 
   async positionMateriel(idMateriel: number) {
+    const materiel = await this.prisma.materiel.findUnique({
+      where: { idMateriel },
+      include: {
+        point_structure: true,
+        materielParent: true,
+      },
+    });
+
+    if (!materiel) {
+      throw new NotFoundException('Matériel introuvable.');
+    }
+
     const liens = await this.prisma.lien_arborescence.findMany({
       where: {
         enfantType: 'MATERIEL',
         enfantMaterielId: idMateriel,
         actif: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: {
+        createdAt: 'desc',
+      },
     });
 
-    return liens;
+    return {
+      materiel,
+      positionGeographique: materiel.point_structure,
+      parentMateriel: materiel.materielParent,
+      liens,
+    };
   }
-  async createLien(dto: CreateLienArborescenceDto) {
-    await this.validateLien(dto);
 
-    const exists = await this.prisma.lien_arborescence.findFirst({
+  /* =====================================================
+     CRUD LIENS
+  ===================================================== */
+
+  async createLien(dto: CreateLienArborescenceDto) {
+    const typeArborescence = this.assertTypeArborescence(
+      dto.typeArborescence,
+    );
+
+    await this.validateLien({
+      ...dto,
+      typeArborescence,
+    });
+
+    await this.assertNoCycle({
+      ...dto,
+      typeArborescence,
+    });
+
+    const lienExistant = await this.prisma.lien_arborescence.findFirst({
       where: {
-        typeArborescence: dto.typeArborescence,
+        typeArborescence,
         parentType: dto.parentType,
         parentPointId: dto.parentPointId ?? null,
         parentMaterielId: dto.parentMaterielId ?? null,
@@ -124,15 +204,27 @@ export class ArborescenceService {
       },
     });
 
-    if (exists) {
+    if (lienExistant?.actif) {
       throw new BadRequestException('Ce lien existe déjà.');
     }
 
-    await this.assertNoCycle(dto);
+    if (lienExistant && !lienExistant.actif) {
+      const lien = await this.prisma.lien_arborescence.update({
+        where: { idLien: lienExistant.idLien },
+        data: {
+          actif: true,
+          ordre: dto.ordre ?? null,
+        },
+      });
 
-    return this.prisma.lien_arborescence.create({
+      await this.synchroniserLienAvecMateriel(typeArborescence, dto);
+
+      return lien;
+    }
+
+    const lien = await this.prisma.lien_arborescence.create({
       data: {
-        typeArborescence: dto.typeArborescence,
+        typeArborescence,
         parentType: dto.parentType,
         parentPointId: dto.parentPointId ?? null,
         parentMaterielId: dto.parentMaterielId ?? null,
@@ -143,6 +235,10 @@ export class ArborescenceService {
         actif: true,
       },
     });
+
+    await this.synchroniserLienAvecMateriel(typeArborescence, dto);
+
+    return lien;
   }
 
   async deleteLien(id: number) {
@@ -154,202 +250,638 @@ export class ArborescenceService {
       throw new NotFoundException('Lien introuvable.');
     }
 
-    return this.prisma.lien_arborescence.delete({
+    return this.prisma.lien_arborescence.update({
       where: { idLien: id },
+      data: {
+        actif: false,
+      },
     });
   }
 
   async moveNode(dto: MoveNodeDto) {
-    const existingLinks = await this.prisma.lien_arborescence.findMany({
-      where: {
-        typeArborescence: dto.typeArborescence,
-        enfantType: dto.enfantType,
-        enfantPointId: dto.enfantPointId ?? null,
-        enfantMaterielId: dto.enfantMaterielId ?? null,
-      },
-    });
+    const typeArborescence = this.assertTypeArborescence(
+      dto.typeArborescence,
+    );
 
-    if (!existingLinks.length) {
-      throw new NotFoundException(
-        "Aucun lien existant trouvé pour ce nœud dans cette arborescence.",
-      );
-    }
+    const enfantType = dto.enfantType as 'POINT_STRUCTURE' | 'MATERIEL';
+    const nouveauParentType = dto.nouveauParentType as
+      | 'POINT_STRUCTURE'
+      | 'MATERIEL';
 
     await this.validateLien({
-      typeArborescence: dto.typeArborescence,
-      parentType: dto.nouveauParentType,
+      typeArborescence,
+      parentType: nouveauParentType,
       parentPointId: dto.nouveauParentPointId,
       parentMaterielId: dto.nouveauParentMaterielId,
-      enfantType: dto.enfantType,
+      enfantType,
       enfantPointId: dto.enfantPointId,
       enfantMaterielId: dto.enfantMaterielId,
     });
 
     await this.assertNoCycle({
-      typeArborescence: dto.typeArborescence,
-      parentType: dto.nouveauParentType,
+      typeArborescence,
+      parentType: nouveauParentType,
       parentPointId: dto.nouveauParentPointId,
       parentMaterielId: dto.nouveauParentMaterielId,
-      enfantType: dto.enfantType,
+      enfantType,
       enfantPointId: dto.enfantPointId,
       enfantMaterielId: dto.enfantMaterielId,
     });
 
-    await this.prisma.lien_arborescence.deleteMany({
+    await this.prisma.lien_arborescence.updateMany({
       where: {
-        typeArborescence: dto.typeArborescence,
-        enfantType: dto.enfantType,
+        typeArborescence,
+        enfantType,
         enfantPointId: dto.enfantPointId ?? null,
         enfantMaterielId: dto.enfantMaterielId ?? null,
+        actif: true,
+      },
+      data: {
+        actif: false,
       },
     });
 
-    return this.prisma.lien_arborescence.create({
+    const nouveauLien = await this.prisma.lien_arborescence.create({
       data: {
-        typeArborescence: dto.typeArborescence,
-        parentType: dto.nouveauParentType,
+        typeArborescence,
+        parentType: nouveauParentType,
         parentPointId: dto.nouveauParentPointId ?? null,
         parentMaterielId: dto.nouveauParentMaterielId ?? null,
-        enfantType: dto.enfantType,
+        enfantType,
         enfantPointId: dto.enfantPointId ?? null,
         enfantMaterielId: dto.enfantMaterielId ?? null,
         actif: true,
       },
     });
+
+  await this.synchroniserLienAvecMateriel(typeArborescence, {
+  parentType: nouveauParentType,
+  parentPointId: dto.nouveauParentPointId,
+  parentMaterielId: dto.nouveauParentMaterielId,
+  enfantType,
+  enfantMaterielId: dto.enfantMaterielId,
+});
+
+    return nouveauLien;
   }
 
+  /* =====================================================
+     TREES PUBLICS
+  ===================================================== */
+
   async getGeographiqueTree(): Promise<TreeNode[]> {
-    return this.getMergedTree('GEOGRAPHIQUE');
+    const children = await this.buildPointStructureTree('GEOGRAPHIQUE');
+
+    return [this.createRootNode(children)];
   }
 
   async getTechniqueTree(): Promise<TreeNode[]> {
-    return this.getMergedTree('TECHNIQUE');
-  }
+    const children = await this.buildPointStructureTree('TECHNIQUE');
 
+    return [this.createRootNode(children)];
+  }
   async getMaterielTree(): Promise<TreeNode[]> {
-    return this.getTreeByType('MATERIEL');
+  const materiels = await this.prisma.materiel.findMany({
+    where: {
+      actif: true,
+    },
+    orderBy: [{ code: 'asc' }, { idMateriel: 'asc' }],
+  });
+
+  const materielMap = new Map<number, (typeof materiels)[number]>();
+  const childrenByParent = new Map<number, number[]>();
+
+  for (const materiel of materiels) {
+    materielMap.set(materiel.idMateriel, materiel);
+
+    if (materiel.idMaterielParent) {
+      if (!childrenByParent.has(materiel.idMaterielParent)) {
+        childrenByParent.set(materiel.idMaterielParent, []);
+      }
+
+      childrenByParent
+        .get(materiel.idMaterielParent)!
+        .push(materiel.idMateriel);
+    }
   }
 
-  private async getTreeByType(
-    typeArborescence: TypeArborescence,
-  ): Promise<TreeNode[]> {
-    const liens = await this.prisma.lien_arborescence.findMany({
+  const buildMaterielNode = (
+    idMateriel: number,
+    visited = new Set<number>(),
+  ): TreeNode | null => {
+    const materiel = materielMap.get(idMateriel);
+
+    if (!materiel) return null;
+
+    if (visited.has(idMateriel)) {
+      return {
+        key: `MATERIEL-${materiel.idMateriel}`,
+        id: materiel.idMateriel,
+        type: 'MATERIEL',
+        code: materiel.code,
+        libelle: materiel.libelle ?? materiel.numeroSerie ?? materiel.code,
+        children: [],
+      };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(idMateriel);
+
+    const childIds = [
+      ...new Set(childrenByParent.get(idMateriel) ?? []),
+    ];
+
+    const children = childIds
+      .map((childId) => buildMaterielNode(childId, nextVisited))
+      .filter((node): node is TreeNode => Boolean(node));
+
+    return {
+      key: `MATERIEL-${materiel.idMateriel}`,
+      id: materiel.idMateriel,
+      type: 'MATERIEL',
+      code: materiel.code,
+      libelle: materiel.libelle ?? materiel.numeroSerie ?? materiel.code,
+      children,
+    };
+  };
+
+  const roots = materiels
+    .filter(
+      (materiel) =>
+        !materiel.idMaterielParent ||
+        !materielMap.has(materiel.idMaterielParent),
+    )
+    .map((materiel) => buildMaterielNode(materiel.idMateriel))
+    .filter((node): node is TreeNode => Boolean(node));
+
+  return [
+    {
+      key: 'ROOT-MATERIEL',
+      id: 0,
+      type: 'ROOT',
+      code: 'BMT',
+      libelle: 'BMT',
+      typePoint: 'MATERIEL',
+      children: roots,
+    },
+  ];
+}
+
+ private async getMergedTree(
+  rootType: 'GEOGRAPHIQUE' | 'TECHNIQUE',
+): Promise<TreeNode[]> {
+  const [points, liens, materiels] = await Promise.all([
+    this.prisma.point_structure.findMany({
       where: {
-        typeArborescence,
+        typePoint: rootType,
+        actif: true,
+      },
+      orderBy: [{ code: 'asc' }, { idPoint: 'asc' }],
+    }),
+
+    this.prisma.lien_arborescence.findMany({
+      where: {
+        typeArborescence: rootType,
         actif: true,
       },
       orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
-    });
+    }),
 
-    const pointIds = new Set<number>();
-    const materielIds = new Set<number>();
+    this.prisma.materiel.findMany({
+      where: {
+        actif: true,
+      },
+      orderBy: [{ code: 'asc' }, { idMateriel: 'asc' }],
+    }),
+  ]);
 
-    for (const lien of liens) {
-      if (lien.parentType === 'POINT_STRUCTURE' && lien.parentPointId) {
-        pointIds.add(lien.parentPointId);
+  const pointMap = new Map<number, any>();
+  const materielMap = new Map<number, any>();
+
+  for (const point of points) {
+    pointMap.set(point.idPoint, point);
+  }
+
+  for (const materiel of materiels) {
+    materielMap.set(materiel.idMateriel, materiel);
+  }
+
+  const pointChildrenMap = new Map<number, number[]>();
+  const pointParentIds = new Set<number>();
+
+  const materielsByPoint = new Map<number, number[]>();
+  const materielChildrenMap = new Map<number, number[]>();
+
+  for (const lien of liens) {
+    if (
+      lien.parentType === 'POINT_STRUCTURE' &&
+      lien.enfantType === 'POINT_STRUCTURE' &&
+      lien.parentPointId &&
+      lien.enfantPointId &&
+      pointMap.has(lien.parentPointId) &&
+      pointMap.has(lien.enfantPointId)
+    ) {
+      if (!pointChildrenMap.has(lien.parentPointId)) {
+        pointChildrenMap.set(lien.parentPointId, []);
       }
-      if (lien.enfantType === 'POINT_STRUCTURE' && lien.enfantPointId) {
-        pointIds.add(lien.enfantPointId);
-      }
-      if (lien.parentType === 'MATERIEL' && lien.parentMaterielId) {
-        materielIds.add(lien.parentMaterielId);
-      }
-      if (lien.enfantType === 'MATERIEL' && lien.enfantMaterielId) {
-        materielIds.add(lien.enfantMaterielId);
-      }
+
+      pointChildrenMap.get(lien.parentPointId)!.push(lien.enfantPointId);
+      pointParentIds.add(lien.enfantPointId);
     }
 
-    const [points, materiels] = await Promise.all([
-      pointIds.size
-        ? this.prisma.point_structure.findMany({
-            where: { idPoint: { in: [...pointIds] } },
-          })
-        : Promise.resolve([]),
-      materielIds.size
-        ? this.prisma.materiel.findMany({
-            where: { idMateriel: { in: [...materielIds] } },
-          })
-        : Promise.resolve([]),
+    if (
+      rootType === 'TECHNIQUE' &&
+      lien.parentType === 'POINT_STRUCTURE' &&
+      lien.enfantType === 'MATERIEL' &&
+      lien.parentPointId &&
+      lien.enfantMaterielId &&
+      pointMap.has(lien.parentPointId) &&
+      materielMap.has(lien.enfantMaterielId)
+    ) {
+      if (!materielsByPoint.has(lien.parentPointId)) {
+        materielsByPoint.set(lien.parentPointId, []);
+      }
+
+      materielsByPoint.get(lien.parentPointId)!.push(lien.enfantMaterielId);
+    }
+  }
+
+  for (const materiel of materiels) {
+    if (materiel.idMaterielParent) {
+      if (!materielChildrenMap.has(materiel.idMaterielParent)) {
+        materielChildrenMap.set(materiel.idMaterielParent, []);
+      }
+
+      materielChildrenMap
+        .get(materiel.idMaterielParent)!
+        .push(materiel.idMateriel);
+    }
+  }
+
+  if (rootType === 'GEOGRAPHIQUE') {
+    for (const materiel of materiels) {
+      if (!materiel.idPointStructure) continue;
+      if (!pointMap.has(materiel.idPointStructure)) continue;
+
+      const isSousMateriel =
+        materiel.idMaterielParent &&
+        materielMap.has(materiel.idMaterielParent);
+
+      if (isSousMateriel) continue;
+
+      if (!materielsByPoint.has(materiel.idPointStructure)) {
+        materielsByPoint.set(materiel.idPointStructure, []);
+      }
+
+      materielsByPoint
+        .get(materiel.idPointStructure)!
+        .push(materiel.idMateriel);
+    }
+  }
+
+  const buildMaterielNode = (
+    idMateriel: number,
+    visited = new Set<number>(),
+  ): TreeNode | null => {
+    const materiel = materielMap.get(idMateriel);
+
+    if (!materiel) return null;
+
+    if (visited.has(idMateriel)) {
+      return {
+        key: `MATERIEL-${materiel.idMateriel}`,
+        id: materiel.idMateriel,
+        type: 'MATERIEL',
+        code: materiel.code,
+        libelle: materiel.libelle ?? materiel.numeroSerie ?? materiel.code,
+        children: [],
+      };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(idMateriel);
+
+    const childIds = [...new Set(materielChildrenMap.get(idMateriel) ?? [])];
+
+    const children = childIds
+      .map((childId) => buildMaterielNode(childId, nextVisited))
+      .filter((node): node is TreeNode => Boolean(node));
+
+    return {
+      key: `MATERIEL-${materiel.idMateriel}`,
+      id: materiel.idMateriel,
+      type: 'MATERIEL',
+      code: materiel.code,
+      libelle: materiel.libelle ?? materiel.numeroSerie ?? materiel.code,
+      children,
+    };
+  };
+
+  const buildPointNode = (
+    idPoint: number,
+    visited = new Set<number>(),
+  ): TreeNode | null => {
+    const point = pointMap.get(idPoint);
+
+    if (!point) return null;
+
+    if (visited.has(idPoint)) {
+      return {
+        key: `POINT_STRUCTURE-${point.idPoint}`,
+        id: point.idPoint,
+        type: 'POINT_STRUCTURE',
+        code: point.code,
+        libelle: point.libelle,
+        typePoint: point.typePoint,
+        children: [],
+      };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(idPoint);
+
+    const pointChildIds = [...new Set(pointChildrenMap.get(idPoint) ?? [])];
+
+    const pointChildren = pointChildIds
+      .map((childId) => buildPointNode(childId, nextVisited))
+      .filter((node): node is TreeNode => Boolean(node));
+
+    const materielChildIds = [...new Set(materielsByPoint.get(idPoint) ?? [])];
+
+    const materielChildren = materielChildIds
+      .map((idMateriel) => buildMaterielNode(idMateriel))
+      .filter((node): node is TreeNode => Boolean(node));
+
+    return {
+      key: `POINT_STRUCTURE-${point.idPoint}`,
+      id: point.idPoint,
+      type: 'POINT_STRUCTURE',
+      code: point.code,
+      libelle: point.libelle,
+      typePoint: point.typePoint,
+      children: [...pointChildren, ...materielChildren],
+    };
+  };
+
+  const rootPointIds = points
+    .filter((point) => !pointParentIds.has(point.idPoint))
+    .map((point) => point.idPoint);
+
+  const children = rootPointIds
+    .map((idPoint) => buildPointNode(idPoint))
+    .filter((node): node is TreeNode => Boolean(node));
+
+  return [
+    {
+      key: `ROOT-${rootType}`,
+      id: 0,
+      type: 'ROOT',
+      code: 'BMT',
+      libelle: 'BMT',
+      typePoint: rootType,
+      children,
+    },
+  ];
+}
+
+  /* =====================================================
+     CONSTRUCTION ARBORESCENCE GÉO / TECHNIQUE
+  ===================================================== */
+
+  private async buildPointStructureTree(
+    typePoint: 'GEOGRAPHIQUE' | 'TECHNIQUE',
+  ): Promise<TreeNode[]> {
+    const typeArborescence = typePoint;
+
+    const [points, liens, materiels] = await Promise.all([
+      this.prisma.point_structure.findMany({
+        where: {
+          typePoint,
+          actif: true,
+        },
+        orderBy: [{ code: 'asc' }, { idPoint: 'asc' }],
+      }),
+
+      this.prisma.lien_arborescence.findMany({
+        where: {
+          typeArborescence,
+          actif: true,
+        },
+        orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
+      }),
+
+      this.prisma.materiel.findMany({
+        where: {
+          actif: true,
+        },
+        orderBy: [{ code: 'asc' }, { idMateriel: 'asc' }],
+      }),
     ]);
 
-    const nodeMap = new Map<string, TreeNode>();
+    const pointMap = new Map<number, any>();
+    const materielMap = new Map<number, any>();
 
-    for (const p of points) {
-      nodeMap.set(`POINT_STRUCTURE-${p.idPoint}`, {
-        key: `POINT_STRUCTURE-${p.idPoint}`,
-        id: p.idPoint,
-        type: 'POINT_STRUCTURE',
-        code: p.code,
-        libelle: p.libelle,
-        typePoint: p.typePoint,
-        children: [],
-      });
+    for (const point of points) {
+      pointMap.set(point.idPoint, point);
     }
 
-    for (const m of materiels) {
-      nodeMap.set(`MATERIEL-${m.idMateriel}`, {
-        key: `MATERIEL-${m.idMateriel}`,
-        id: m.idMateriel,
-        type: 'MATERIEL',
-        code: m.code,
-        libelle: m.numeroSerie,
-        children: [],
-      });
+    for (const materiel of materiels) {
+      materielMap.set(materiel.idMateriel, materiel);
     }
 
-    const childKeys = new Set<string>();
+    const pointChildrenMap = new Map<number, number[]>();
+    const pointParentIds = new Set<number>();
+
+    const directMaterielsByPoint = new Map<number, number[]>();
+    const materielChildrenByParent = new Map<number, number[]>();
+
+    for (const materiel of materiels) {
+      if (materiel.idMaterielParent) {
+        if (!materielChildrenByParent.has(materiel.idMaterielParent)) {
+          materielChildrenByParent.set(materiel.idMaterielParent, []);
+        }
+
+        materielChildrenByParent
+          .get(materiel.idMaterielParent)!
+          .push(materiel.idMateriel);
+      }
+    }
 
     for (const lien of liens) {
-      const parentKey =
-        lien.parentType === 'POINT_STRUCTURE'
-          ? `POINT_STRUCTURE-${lien.parentPointId}`
-          : `MATERIEL-${lien.parentMaterielId}`;
+      if (
+        lien.parentType === 'POINT_STRUCTURE' &&
+        lien.enfantType === 'POINT_STRUCTURE' &&
+        lien.parentPointId &&
+        lien.enfantPointId &&
+        pointMap.has(lien.parentPointId) &&
+        pointMap.has(lien.enfantPointId)
+      ) {
+        if (!pointChildrenMap.has(lien.parentPointId)) {
+          pointChildrenMap.set(lien.parentPointId, []);
+        }
 
-      const childKey =
-        lien.enfantType === 'POINT_STRUCTURE'
-          ? `POINT_STRUCTURE-${lien.enfantPointId}`
-          : `MATERIEL-${lien.enfantMaterielId}`;
-
-      const parentNode = nodeMap.get(parentKey);
-      const childNode = nodeMap.get(childKey);
-
-      if (!parentNode || !childNode) continue;
-
-      if (!parentNode.children.some((c) => c.key === childNode.key)) {
-        parentNode.children.push(childNode);
+        pointChildrenMap.get(lien.parentPointId)!.push(lien.enfantPointId);
+        pointParentIds.add(lien.enfantPointId);
       }
 
-      childKeys.add(childKey);
-    }
+      if (
+        typePoint === 'TECHNIQUE' &&
+        lien.parentType === 'POINT_STRUCTURE' &&
+        lien.enfantType === 'MATERIEL' &&
+        lien.parentPointId &&
+        lien.enfantMaterielId &&
+        pointMap.has(lien.parentPointId) &&
+        materielMap.has(lien.enfantMaterielId)
+      ) {
+        if (!directMaterielsByPoint.has(lien.parentPointId)) {
+          directMaterielsByPoint.set(lien.parentPointId, []);
+        }
 
-    const roots: TreeNode[] = [];
+        directMaterielsByPoint
+          .get(lien.parentPointId)!
+          .push(lien.enfantMaterielId);
+      }
 
-    for (const [key, node] of nodeMap.entries()) {
-      if (!childKeys.has(key)) {
-        roots.push(node);
+      if (
+        lien.parentType === 'MATERIEL' &&
+        lien.enfantType === 'MATERIEL' &&
+        lien.parentMaterielId &&
+        lien.enfantMaterielId &&
+        materielMap.has(lien.parentMaterielId) &&
+        materielMap.has(lien.enfantMaterielId)
+      ) {
+        if (!materielChildrenByParent.has(lien.parentMaterielId)) {
+          materielChildrenByParent.set(lien.parentMaterielId, []);
+        }
+
+        materielChildrenByParent
+          .get(lien.parentMaterielId)!
+          .push(lien.enfantMaterielId);
       }
     }
 
-    return roots;
+    if (typePoint === 'GEOGRAPHIQUE') {
+      for (const materiel of materiels) {
+        if (!materiel.idPointStructure) continue;
+        if (!pointMap.has(materiel.idPointStructure)) continue;
+
+        const parentExiste = materiel.idMaterielParent
+          ? materielMap.has(materiel.idMaterielParent)
+          : false;
+
+        if (parentExiste) continue;
+
+        if (!directMaterielsByPoint.has(materiel.idPointStructure)) {
+          directMaterielsByPoint.set(materiel.idPointStructure, []);
+        }
+
+        directMaterielsByPoint
+          .get(materiel.idPointStructure)!
+          .push(materiel.idMateriel);
+      }
+    }
+
+    const buildMaterielNode = (
+      idMateriel: number,
+      visited = new Set<number>(),
+    ): TreeNode | null => {
+      const materiel = materielMap.get(idMateriel);
+
+      if (!materiel) return null;
+
+      if (visited.has(idMateriel)) {
+        return this.toMaterielNode(materiel, []);
+      }
+
+      const nextVisited = new Set(visited);
+      nextVisited.add(idMateriel);
+
+      const childIds = [
+        ...new Set(materielChildrenByParent.get(idMateriel) ?? []),
+      ];
+
+      const children = childIds
+        .map((childId) => buildMaterielNode(childId, nextVisited))
+        .filter((node): node is TreeNode => Boolean(node));
+
+      return this.toMaterielNode(materiel, children);
+    };
+
+    const buildPointNode = (
+      idPoint: number,
+      visited = new Set<number>(),
+    ): TreeNode | null => {
+      const point = pointMap.get(idPoint);
+
+      if (!point) return null;
+
+      if (visited.has(idPoint)) {
+        return this.toPointNode(point, []);
+      }
+
+      const nextVisited = new Set(visited);
+      nextVisited.add(idPoint);
+
+      const pointChildIds = [
+        ...new Set(pointChildrenMap.get(idPoint) ?? []),
+      ];
+
+      const pointChildren = pointChildIds
+        .map((childId) => buildPointNode(childId, nextVisited))
+        .filter((node): node is TreeNode => Boolean(node));
+
+      const materielChildIds = [
+        ...new Set(directMaterielsByPoint.get(idPoint) ?? []),
+      ];
+
+      const materielChildren = materielChildIds
+        .map((idMateriel) => buildMaterielNode(idMateriel))
+        .filter((node): node is TreeNode => Boolean(node));
+
+      return this.toPointNode(point, [...pointChildren, ...materielChildren]);
+    };
+
+    const rootPointIds = points
+      .filter((point) => !pointParentIds.has(point.idPoint))
+      .map((point) => point.idPoint);
+
+    return rootPointIds
+      .map((idPoint) => buildPointNode(idPoint))
+      .filter((node): node is TreeNode => Boolean(node));
   }
+
+  /* =====================================================
+     VALIDATIONS
+  ===================================================== */
 
   private async validateLien(dto: {
     typeArborescence: TypeArborescence;
-    parentType: NodeType;
+    parentType: string;
     parentPointId?: number | null;
     parentMaterielId?: number | null;
-    enfantType: NodeType;
+    enfantType: string;
     enfantPointId?: number | null;
     enfantMaterielId?: number | null;
   }) {
+    const parentType = dto.parentType as 'POINT_STRUCTURE' | 'MATERIEL';
+    const enfantType = dto.enfantType as 'POINT_STRUCTURE' | 'MATERIEL';
+
+    if (!['POINT_STRUCTURE', 'MATERIEL'].includes(parentType)) {
+      throw new BadRequestException('Type du parent invalide.');
+    }
+
+    if (!['POINT_STRUCTURE', 'MATERIEL'].includes(enfantType)) {
+      throw new BadRequestException("Type de l'enfant invalide.");
+    }
+
     const parent = await this.getNode(
-      dto.parentType,
+      parentType,
       dto.parentPointId ?? null,
       dto.parentMaterielId ?? null,
     );
 
     const enfant = await this.getNode(
-      dto.enfantType,
+      enfantType,
       dto.enfantPointId ?? null,
       dto.enfantMaterielId ?? null,
     );
@@ -363,61 +895,52 @@ export class ArborescenceService {
     }
 
     const parentKey = this.makeNodeKey(
-      dto.parentType,
+      parentType,
       dto.parentPointId ?? null,
       dto.parentMaterielId ?? null,
     );
-    const childKey = this.makeNodeKey(
-      dto.enfantType,
+
+    const enfantKey = this.makeNodeKey(
+      enfantType,
       dto.enfantPointId ?? null,
       dto.enfantMaterielId ?? null,
     );
 
-    if (parentKey === childKey) {
+    if (parentKey === enfantKey) {
       throw new BadRequestException(
         'Un nœud ne peut pas être parent de lui-même.',
       );
     }
 
-    switch (dto.typeArborescence) {
-      case 'GEOGRAPHIQUE': {
-        if (dto.parentType !== 'POINT_STRUCTURE') {
-          throw new BadRequestException(
-            "Dans l'arborescence géographique, le parent doit être un point de structure.",
-          );
-        }
-
-        const parentPoint = parent as { typePoint: string | null };
-
-        if (parentPoint.typePoint !== 'GEOGRAPHIQUE') {
-          throw new BadRequestException(
-            'Le parent doit être un point de type GEOGRAPHIQUE.',
-          );
-        }
-
-        if (dto.enfantType === 'POINT_STRUCTURE') {
-          const enfantPoint = enfant as { typePoint: string | null };
-
-          if (
-            enfantPoint.typePoint !== 'GEOGRAPHIQUE' &&
-            enfantPoint.typePoint !== 'TECHNIQUE'
-          ) {
-            throw new BadRequestException(
-              "Un point géographique peut avoir comme fils un point GEOGRAPHIQUE ou TECHNIQUE.",
-            );
-          }
-        }
-        break;
+    if (dto.typeArborescence === 'GEOGRAPHIQUE') {
+      if (parentType !== 'POINT_STRUCTURE') {
+        throw new BadRequestException(
+          "Dans l'arborescence géographique, le parent doit être un point géographique.",
+        );
       }
 
-      case 'TECHNIQUE': {
-        if (dto.parentType !== 'POINT_STRUCTURE') {
+      const parentPoint = parent as { typePoint: string };
+
+      if (parentPoint.typePoint !== 'GEOGRAPHIQUE') {
+        throw new BadRequestException(
+          'Le parent doit être un point de type GEOGRAPHIQUE.',
+        );
+      }
+
+      if (enfantType === 'POINT_STRUCTURE') {
+        const enfantPoint = enfant as { typePoint: string };
+
+        if (enfantPoint.typePoint !== 'GEOGRAPHIQUE') {
           throw new BadRequestException(
-            "Dans l'arborescence technique, le parent doit être un point de structure.",
+            "Dans l'arborescence géographique, un sous-point doit aussi être GEOGRAPHIQUE.",
           );
         }
+      }
+    }
 
-        const parentPoint = parent as { typePoint: string | null };
+    if (dto.typeArborescence === 'TECHNIQUE') {
+      if (parentType === 'POINT_STRUCTURE') {
+        const parentPoint = parent as { typePoint: string };
 
         if (parentPoint.typePoint !== 'TECHNIQUE') {
           throw new BadRequestException(
@@ -425,37 +948,39 @@ export class ArborescenceService {
           );
         }
 
-        if (dto.enfantType === 'POINT_STRUCTURE') {
-          const enfantPoint = enfant as { typePoint: string | null };
+        if (enfantType === 'POINT_STRUCTURE') {
+          const enfantPoint = enfant as { typePoint: string };
 
           if (enfantPoint.typePoint !== 'TECHNIQUE') {
             throw new BadRequestException(
-              "Dans l'arborescence technique, un point technique ne peut avoir comme fils qu'un point technique.",
+              "Dans l'arborescence technique, un sous-point doit aussi être TECHNIQUE.",
             );
           }
         }
-        break;
       }
 
-      case 'MATERIEL':
-        if (dto.parentType !== 'MATERIEL' || dto.enfantType !== 'MATERIEL') {
-          throw new BadRequestException(
-            "Dans l'arborescence matériel, le parent et l'enfant doivent être des matériels.",
-          );
-        }
-        break;
+      if (parentType === 'MATERIEL' && enfantType !== 'MATERIEL') {
+        throw new BadRequestException(
+          'Un matériel ne peut avoir comme enfant qu’un autre matériel.',
+        );
+      }
+    }
 
-      default:
-        throw new BadRequestException("Type d'arborescence invalide.");
+    if (dto.typeArborescence === 'MATERIEL') {
+      if (parentType !== 'MATERIEL' || enfantType !== 'MATERIEL') {
+        throw new BadRequestException(
+          "Dans l'arborescence matériel, le parent et l'enfant doivent être des matériels.",
+        );
+      }
     }
   }
 
   private async assertNoCycle(dto: {
     typeArborescence: TypeArborescence;
-    parentType: NodeType;
+    parentType: string;
     parentPointId?: number | null;
     parentMaterielId?: number | null;
-    enfantType: NodeType;
+    enfantType: string;
     enfantPointId?: number | null;
     enfantMaterielId?: number | null;
   }) {
@@ -469,30 +994,33 @@ export class ArborescenceService {
     const graph = new Map<string, string[]>();
 
     for (const lien of liens) {
-      const pKey = this.makeNodeKey(
-        lien.parentType as NodeType,
+      const parentKey = this.makeNodeKey(
+        lien.parentType as 'POINT_STRUCTURE' | 'MATERIEL',
         lien.parentPointId,
         lien.parentMaterielId,
       );
-      const cKey = this.makeNodeKey(
-        lien.enfantType as NodeType,
+
+      const childKey = this.makeNodeKey(
+        lien.enfantType as 'POINT_STRUCTURE' | 'MATERIEL',
         lien.enfantPointId,
         lien.enfantMaterielId,
       );
 
-      if (!graph.has(pKey)) {
-        graph.set(pKey, []);
+      if (!graph.has(parentKey)) {
+        graph.set(parentKey, []);
       }
-      graph.get(pKey)!.push(cKey);
+
+      graph.get(parentKey)!.push(childKey);
     }
 
     const newParentKey = this.makeNodeKey(
-      dto.parentType,
+      dto.parentType as 'POINT_STRUCTURE' | 'MATERIEL',
       dto.parentPointId ?? null,
       dto.parentMaterielId ?? null,
     );
+
     const newChildKey = this.makeNodeKey(
-      dto.enfantType,
+      dto.enfantType as 'POINT_STRUCTURE' | 'MATERIEL',
       dto.enfantPointId ?? null,
       dto.enfantMaterielId ?? null,
     );
@@ -500,6 +1028,7 @@ export class ArborescenceService {
     if (!graph.has(newParentKey)) {
       graph.set(newParentKey, []);
     }
+
     graph.get(newParentKey)!.push(newChildKey);
 
     const visited = new Set<string>();
@@ -512,12 +1041,12 @@ export class ArborescenceService {
       visited.add(node);
       stack.add(node);
 
-      const neighbors = graph.get(node) ?? [];
-      for (const next of neighbors) {
+      for (const next of graph.get(node) ?? []) {
         if (hasCycle(next)) return true;
       }
 
       stack.delete(node);
+
       return false;
     };
 
@@ -530,26 +1059,78 @@ export class ArborescenceService {
     }
   }
 
+  /* =====================================================
+     SYNCHRONISATION MATÉRIEL
+  ===================================================== */
+
+  private async synchroniserLienAvecMateriel(
+    typeArborescence: TypeArborescence,
+    dto: {
+      parentType: string;
+      parentPointId?: number | null;
+      parentMaterielId?: number | null;
+      enfantType: string;
+      enfantMaterielId?: number | null;
+    },
+  ) {
+    if (dto.enfantType !== 'MATERIEL' || !dto.enfantMaterielId) {
+      return;
+    }
+
+    if (
+      typeArborescence === 'GEOGRAPHIQUE' &&
+      dto.parentType === 'POINT_STRUCTURE' &&
+      dto.parentPointId
+    ) {
+      await this.prisma.materiel.update({
+        where: { idMateriel: dto.enfantMaterielId },
+        data: {
+          idPointStructure: dto.parentPointId,
+        },
+      });
+    }
+
+    if (
+      (typeArborescence === 'MATERIEL' ||
+        typeArborescence === 'TECHNIQUE') &&
+      dto.parentType === 'MATERIEL' &&
+      dto.parentMaterielId
+    ) {
+      await this.prisma.materiel.update({
+        where: { idMateriel: dto.enfantMaterielId },
+        data: {
+          idMaterielParent: dto.parentMaterielId,
+        },
+      });
+    }
+  }
+
+  /* =====================================================
+     HELPERS
+  ===================================================== */
+
   private async getNode(
-    nodeType: NodeType,
+    nodeType: 'POINT_STRUCTURE' | 'MATERIEL',
     pointId?: number | null,
     materielId?: number | null,
   ) {
     if (nodeType === 'POINT_STRUCTURE') {
       if (!pointId) return null;
+
       return this.prisma.point_structure.findUnique({
         where: { idPoint: pointId },
       });
     }
 
     if (!materielId) return null;
+
     return this.prisma.materiel.findUnique({
       where: { idMateriel: materielId },
     });
   }
 
   private makeNodeKey(
-    nodeType: NodeType,
+    nodeType: 'POINT_STRUCTURE' | 'MATERIEL',
     pointId?: number | null,
     materielId?: number | null,
   ) {
@@ -558,260 +1139,50 @@ export class ArborescenceService {
       : `MATERIEL-${materielId}`;
   }
 
-  private async getMergedTree(
-  rootType: 'GEOGRAPHIQUE' | 'TECHNIQUE',
-): Promise<TreeNode[]> {
-  const [rootLiens, techLiens, materielLiens, rootPoints] = await Promise.all([
-    this.prisma.lien_arborescence.findMany({
-      where: {
-        typeArborescence: rootType,
-        actif: true,
-      },
-      orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
-    }),
-
-    this.prisma.lien_arborescence.findMany({
-      where: {
-        typeArborescence: 'TECHNIQUE',
-        actif: true,
-      },
-      orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
-    }),
-
-    this.prisma.lien_arborescence.findMany({
-      where: {
-        typeArborescence: 'MATERIEL',
-        actif: true,
-      },
-      orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
-    }),
-
-    // IMPORTANT :
-    // Ici on récupère aussi les points actifs même s'ils n'ont aucun lien.
-    this.prisma.point_structure.findMany({
-      where: {
-        typePoint: rootType,
-        actif: true,
-      },
-      orderBy: {
-        code: 'asc',
-      },
-    }),
-  ]);
-
-  const pointIds = new Set<number>();
-  const materielIds = new Set<number>();
-
-  const collectIds = (liens: typeof rootLiens) => {
-    for (const lien of liens) {
-      if (lien.parentType === 'POINT_STRUCTURE' && lien.parentPointId) {
-        pointIds.add(lien.parentPointId);
-      }
-
-      if (lien.enfantType === 'POINT_STRUCTURE' && lien.enfantPointId) {
-        pointIds.add(lien.enfantPointId);
-      }
-
-      if (lien.parentType === 'MATERIEL' && lien.parentMaterielId) {
-        materielIds.add(lien.parentMaterielId);
-      }
-
-      if (lien.enfantType === 'MATERIEL' && lien.enfantMaterielId) {
-        materielIds.add(lien.enfantMaterielId);
-      }
-    }
-  };
-
-  collectIds(rootLiens);
-  collectIds(techLiens);
-  collectIds(materielLiens);
-
-  // IMPORTANT :
-  // On ajoute les points racines même s'ils ne sont pas dans lien_arborescence.
-  for (const point of rootPoints) {
-    pointIds.add(point.idPoint);
-  }
-
-  const [points, materiels] = await Promise.all([
-    pointIds.size
-      ? this.prisma.point_structure.findMany({
-          where: {
-            idPoint: {
-              in: [...pointIds],
-            },
-            actif: true,
-          },
-          orderBy: {
-            code: 'asc',
-          },
-        })
-      : Promise.resolve([]),
-
-    materielIds.size
-      ? this.prisma.materiel.findMany({
-          where: {
-            idMateriel: {
-              in: [...materielIds],
-            },
-            actif: true,
-          },
-          orderBy: {
-            code: 'asc',
-          },
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const baseNodeMap = new Map<string, TreeNode>();
-
-  for (const p of points) {
-    baseNodeMap.set(`POINT_STRUCTURE-${p.idPoint}`, {
-      key: `POINT_STRUCTURE-${p.idPoint}`,
-      id: p.idPoint,
-      type: 'POINT_STRUCTURE',
-      code: p.code,
-      libelle: p.libelle,
-      typePoint: p.typePoint,
-      children: [],
-    });
-  }
-
-  for (const m of materiels) {
-    baseNodeMap.set(`MATERIEL-${m.idMateriel}`, {
-      key: `MATERIEL-${m.idMateriel}`,
-      id: m.idMateriel,
-      type: 'MATERIEL',
-      code: m.code,
-      libelle: m.numeroSerie,
-      children: [],
-    });
-  }
-
-  const buildChildrenMap = (liens: typeof rootLiens) => {
-    const map = new Map<string, string[]>();
-
-    for (const lien of liens) {
-      const parentKey =
-        lien.parentType === 'POINT_STRUCTURE'
-          ? `POINT_STRUCTURE-${lien.parentPointId}`
-          : `MATERIEL-${lien.parentMaterielId}`;
-
-      const childKey =
-        lien.enfantType === 'POINT_STRUCTURE'
-          ? `POINT_STRUCTURE-${lien.enfantPointId}`
-          : `MATERIEL-${lien.enfantMaterielId}`;
-
-      if (!baseNodeMap.has(parentKey) || !baseNodeMap.has(childKey)) {
-        continue;
-      }
-
-      if (!map.has(parentKey)) {
-        map.set(parentKey, []);
-      }
-
-      map.get(parentKey)!.push(childKey);
-    }
-
-    return map;
-  };
-
-  const rootChildrenMap = buildChildrenMap(rootLiens);
-  const techChildrenMap = buildChildrenMap(techLiens);
-  const materielChildrenMap = buildChildrenMap(materielLiens);
-
-  const childKeysInRoot = new Set<string>();
-
-  for (const childKeys of rootChildrenMap.values()) {
-    for (const key of childKeys) {
-      childKeysInRoot.add(key);
-    }
-  }
-
-  const buildNode = (key: string, visited = new Set<string>()): TreeNode => {
-    const original = baseNodeMap.get(key);
-
-    if (!original) {
-      throw new NotFoundException(`Nœud introuvable pour la clé ${key}`);
-    }
-
-    if (visited.has(key)) {
-      return {
-        key: original.key,
-        id: original.id,
-        type: original.type,
-        code: original.code,
-        libelle: original.libelle,
-        typePoint: original.typePoint,
-        children: [],
-      };
-    }
-
-    const nextVisited = new Set(visited);
-    nextVisited.add(key);
-
-    const node: TreeNode = {
-      key: original.key,
-      id: original.id,
-      type: original.type,
-      code: original.code,
-      libelle: original.libelle,
-      typePoint: original.typePoint,
-      children: [],
+  private createRootNode(children: TreeNode[]): TreeNode {
+    return {
+      key: 'ROOT-BMT',
+      id: 0,
+      type: 'ROOT',
+      code: 'BMT',
+      libelle: 'BMT',
+      typePoint: 'ROOT',
+      children,
     };
+  }
 
-    const childKeys: string[] = [];
+  private toPointNode(point: any, children: TreeNode[]): TreeNode {
+    return {
+      key: `POINT_STRUCTURE-${point.idPoint}`,
+      id: point.idPoint,
+      type: 'POINT_STRUCTURE',
+      code: point.code,
+      libelle: point.libelle,
+      typePoint: point.typePoint,
+      children,
+    };
+  }
 
-    // Enfants de l'arborescence demandée : GEOGRAPHIQUE ou TECHNIQUE.
-    if (rootChildrenMap.has(key)) {
-      childKeys.push(...rootChildrenMap.get(key)!);
-    }
+  private toMaterielNode(materiel: any, children: TreeNode[]): TreeNode {
+    return {
+      key: `MATERIEL-${materiel.idMateriel}`,
+      id: materiel.idMateriel,
+      type: 'MATERIEL',
+      code: materiel.code,
+      libelle: materiel.libelle ?? materiel.numeroSerie ?? materiel.code,
+      children,
+    };
+  }
 
-    // Si on est dans l'arbre géographique et qu'un point technique existe dedans,
-    // on affiche aussi ses enfants techniques.
+  private assertTypeArborescence(value: string): TypeArborescence {
     if (
-      rootType === 'GEOGRAPHIQUE' &&
-      node.type === 'POINT_STRUCTURE' &&
-      node.typePoint === 'TECHNIQUE'
+      value !== 'GEOGRAPHIQUE' &&
+      value !== 'TECHNIQUE' &&
+      value !== 'MATERIEL'
     ) {
-      childKeys.push(...(techChildrenMap.get(key) ?? []));
+      throw new BadRequestException("Type d'arborescence invalide.");
     }
 
-    // Si le nœud est un matériel, on affiche ses composants matériels.
-    if (node.type === 'MATERIEL') {
-      childKeys.push(...(materielChildrenMap.get(key) ?? []));
-    }
-
-    const uniqueChildKeys = [...new Set(childKeys)];
-
-    for (const childKey of uniqueChildKeys) {
-      node.children.push(buildNode(childKey, nextVisited));
-    }
-
-    return node;
-  };
-
-  const roots: TreeNode[] = [];
-  const rootKeysAlreadyAdded = new Set<string>();
-
-  // 1. Ajouter les points actifs sans parent comme racines.
-  // Exemple : ESSS1 doit apparaître même s'il n'a pas encore de lien.
-  for (const point of rootPoints) {
-    const key = `POINT_STRUCTURE-${point.idPoint}`;
-
-    if (!childKeysInRoot.has(key) && baseNodeMap.has(key)) {
-      roots.push(buildNode(key));
-      rootKeysAlreadyAdded.add(key);
-    }
+    return value;
   }
-
-  // 2. Ajouter aussi les racines qui viennent des liens existants.
-  for (const parentKey of rootChildrenMap.keys()) {
-    if (!childKeysInRoot.has(parentKey) && !rootKeysAlreadyAdded.has(parentKey)) {
-      roots.push(buildNode(parentKey));
-      rootKeysAlreadyAdded.add(parentKey);
-    }
-  }
-
-  return roots;
 }
-}  

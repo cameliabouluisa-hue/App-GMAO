@@ -29,30 +29,38 @@ export class MaterielController {
     return this.materielService.findAll();
   }
 
+  @Get('referentiel/etats')
+  findEtatsMateriel() {
+    return this.materielService.findEtatsMateriel();
+  }
+
+  @Get('referentiel/types')
+  findTypesMateriel() {
+    return this.materielService.findTypesMateriel();
+  }
+
   @Get(':id/intervention-possible')
   verifierInterventionPossible(@Param('id', ParseIntPipe) id: number) {
     return this.materielService.verifierInterventionPossible(id);
   }
- @Get('referentiel/etats')
-findEtatsMateriel() {
-  return this.materielService.findEtatsMateriel();
-}
-@Get('referentiel/types')
-findTypesMateriel() {
-  return this.materielService.findTypesMateriel();
-}
-@Post(':id/generer-plan-preventif/:idPPP')
-genererPlanPreventifDepuisPPP(
-  @Param('id', ParseIntPipe) id: number,
-  @Param('idPPP', ParseIntPipe) idPPP: number,
-) {
-  return this.materielService.genererPlanPreventifDepuisPPP(id, idPPP);
-}
+
+  @Post(':id/generer-plan-preventif/:idPPP')
+  genererPlanPreventifDepuisPPP(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('idPPP', ParseIntPipe) idPPP: number,
+  ) {
+    return this.materielService.genererPlanPreventifDepuisPPP(id, idPPP);
+  }
+
+  @Patch(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number) {
+    return this.materielService.restore(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.materielService.findOne(id);
   }
- 
 
   @Patch(':id')
   update(

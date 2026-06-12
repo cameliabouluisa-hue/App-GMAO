@@ -46,8 +46,16 @@ export async function updateMateriel(
   return res.data;
 }
 
-export async function deleteMateriel(id: number): Promise<void> {
-  await axios.delete(`/materiels/${id}`);
+// Désactivation logique : actif = false
+export async function deleteMateriel(id: number): Promise<Materiel> {
+  const res = await axios.delete(`/materiels/${id}`);
+  return res.data;
+}
+
+// Réactivation : actif = true
+export async function restoreMateriel(id: number): Promise<Materiel> {
+  const res = await axios.patch(`/materiels/${id}/restore`);
+  return res.data;
 }
 
 /* =========================
@@ -127,6 +135,7 @@ export async function getPointsStructure(): Promise<PointStructure[]> {
     return [];
   }
 }
+
 export async function genererPlanPreventifDepuisPPP(
   idMateriel: number,
   idPlanPreventifPredefini: number,
