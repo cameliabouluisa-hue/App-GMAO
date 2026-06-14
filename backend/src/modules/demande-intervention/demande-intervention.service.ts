@@ -1,51 +1,67 @@
 import {
-  ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '../../../generated/prisma/client';
+
 import { CreateDemandeInterventionDto } from './dto/create-demande-intervention.dto';
 import { UpdateDemandeInterventionDto } from './dto/update-demande-intervention.dto';
-import { ValiderDemandeInterventionDto } from './dto/valider-demande-intervention.dto';
-import { RefuserDemandeInterventionDto } from './dto/refuser-demande-intervention.dto';
-import { GenerateOtCorrectiveDto } from './dto/generate-ot-corrective.dto';
+
+import {
+  ActionDemandeInterventionDto,
+  RefuserDemandeInterventionDto,
+  RefuserTravauxDemandeDto,
+} from './dto/action-demande-intervention.dto';
+
+import { DEMANDE_INTERVENTION_STATUTS } from './demande-intervention.constants';
+
+type FindAllDemandeFilters = {
+  statut?: string;
+  idMateriel?: number;
+  priorite?: string;
+};
+
+const demandeInclude = {
+  materiel: true,
+  intervention: {
+    orderBy: {
+      idIntervention: 'desc',
+    },
+  },
+  historiquesEtat: {
+    orderBy: {
+      changedAt: 'desc',
+    },
+  },
+} satisfies Prisma.demande_interventionInclude;
 
 @Injectable()
 export class DemandeInterventionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateDemandeInterventionDto) {
-    await this.ensureMaterielExists(dto.idMateriel);
+  async findAll(filters: FindAllDemandeFilters = {}) {
+    const where: Prisma.demande_interventionWhereInput = {};
 
-    const demande = await this.prisma.demande_intervention.create({
-      data: {
-        dateDemande: dto.dateDemande ? new Date(dto.dateDemande) : new Date(),
-        description: dto.description,
-        statut: dto.statut ?? 'EN_ATTENTE_VALIDATION',
-        idMateriel: dto.idMateriel,
-        priorite: dto.priorite ?? 'NORMALE',
-        createdBy: dto.createdBy ?? 'RESPONSABLE_MAINTENANCE',
-      },
-    });
+    if (filters.statut) where.statut = filters.statut;
+    if (filters.idMateriel) where.idMateriel = filters.idMateriel;
+    if (filters.priorite) where.priorite = filters.priorite;
 
-    return this.findOne(demande.idDemande);
-  }
-
-  async findAll() {
     return this.prisma.demande_intervention.findMany({
+      where,
+      include: demandeInclude,
       orderBy: {
         idDemande: 'desc',
       },
-      include: this.defaultInclude(),
     });
   }
 
-  async findOne(id: number) {
+  async findOne(idDemande: number) {
     const demande = await this.prisma.demande_intervention.findUnique({
-      where: {
-        idDemande: id,
-      },
-      include: this.defaultInclude(),
+      where: { idDemande },
+      include: demandeInclude,
     });
 
     if (!demande) {
@@ -55,399 +71,397 @@ export class DemandeInterventionService {
     return demande;
   }
 
-  async update(id: number, dto: UpdateDemandeInterventionDto) {
-    await this.ensureDemandeExists(id);
-
-    if (dto.idMateriel !== undefined) {
+  async create(dto: CreateDemandeInterventionDto) {
+    if (dto.idMateriel) {
       await this.ensureMaterielExists(dto.idMateriel);
     }
 
-    await this.prisma.demande_intervention.update({
-      where: {
-        idDemande: id,
-      },
-      data: {
-        ...(dto.dateDemande !== undefined
-          ? { dateDemande: new Date(dto.dateDemande) }
-          : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description }
-          : {}),
-        ...(dto.statut !== undefined ? { statut: dto.statut } : {}),
-        ...(dto.idMateriel !== undefined ? { idMateriel: dto.idMateriel } : {}),
-        ...(dto.priorite !== undefined ? { priorite: dto.priorite } : {}),
-        ...(dto.createdBy !== undefined ? { createdBy: dto.createdBy } : {}),
-      },
-    });
+    const code = dto.code ?? (await this.generateDemandeCode());
 
-    return this.findOne(id);
+    return this.prisma.$transaction(async (tx) => {
+      const demande = await tx.demande_intervention.create({
+        data: {
+          code,
+          dateDemande: this.parseDate(dto.dateDemande) ?? new Date(),
+          description: dto.description,
+          statut: DEMANDE_INTERVENTION_STATUTS.EN_PREPARATION,
+
+          priorite: dto.priorite ?? 'NORMALE',
+          criticite: dto.criticite ?? 'MOYENNE',
+
+          createdBy: dto.createdBy,
+          demandeur: dto.demandeur,
+
+          receptionTravaux: dto.receptionTravaux ?? false,
+          materielEnPanne: dto.materielEnPanne ?? false,
+          materielIndisponible: dto.materielIndisponible ?? false,
+
+          materiel: dto.idMateriel
+            ? { connect: { idMateriel: dto.idMateriel } }
+            : undefined,
+        },
+      });
+
+      await this.createHistoriqueEtatTx(tx, {
+        idDemande: demande.idDemande,
+        ancienStatut: null,
+        nouveauStatut: DEMANDE_INTERVENTION_STATUTS.EN_PREPARATION,
+        action: 'CREATION',
+        commentaire: 'Création de la demande d’intervention',
+        changedBy: dto.createdBy,
+      });
+
+      return tx.demande_intervention.findUnique({
+        where: { idDemande: demande.idDemande },
+        include: demandeInclude,
+      });
+    });
   }
 
-  async remove(id: number) {
-    await this.ensureDemandeExists(id);
+  async update(idDemande: number, dto: UpdateDemandeInterventionDto) {
+    const demande = await this.findOne(idDemande);
 
-    const interventionsCount = await this.prisma.intervention.count({
-      where: {
-        idDemande: id,
+    this.ensureModifiable(demande.statut);
+
+    if (dto.idMateriel) {
+      await this.ensureMaterielExists(dto.idMateriel);
+    }
+
+    return this.prisma.demande_intervention.update({
+      where: { idDemande },
+      data: {
+        code: dto.code,
+        dateDemande: this.parseDate(dto.dateDemande),
+        description: dto.description,
+        idMateriel: dto.idMateriel,
+        priorite: dto.priorite,
+        criticite: dto.criticite,
+        demandeur: dto.demandeur,
+        receptionTravaux: dto.receptionTravaux,
+        materielEnPanne: dto.materielEnPanne,
+        materielIndisponible: dto.materielIndisponible,
       },
+      include: demandeInclude,
     });
+  }
 
-    if (interventionsCount > 0) {
-      throw new ConflictException(
-        'Impossible de supprimer cette DI : une intervention est déjà liée.',
+  async delete(idDemande: number) {
+    const demande = await this.findOne(idDemande);
+
+    if (demande.statut !== DEMANDE_INTERVENTION_STATUTS.EN_PREPARATION) {
+      throw new BadRequestException(
+        'Suppression impossible. Seules les DI en préparation peuvent être supprimées.',
       );
     }
 
     return this.prisma.demande_intervention.delete({
-      where: {
-        idDemande: id,
-      },
+      where: { idDemande },
     });
   }
 
-  async valider(id: number, dto: ValiderDemandeInterventionDto) {
-    const demande = await this.ensureDemandeExists(id);
-
-    if (demande.statut === 'VALIDEE') {
-      throw new ConflictException('Cette DI est déjà validée.');
-    }
-
-    if (demande.statut === 'REFUSEE') {
-      throw new ConflictException('Impossible de valider une DI refusée.');
-    }
-
-    if (demande.statut === 'OT_GENERE') {
-      throw new ConflictException('Cette DI a déjà généré un OT.');
-    }
-
-    await this.prisma.demande_intervention.update({
-      where: {
-        idDemande: id,
-      },
+  async soumettre(idDemande: number, dto: ActionDemandeInterventionDto) {
+    return this.changeStatut(idDemande, {
+      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.ATTENTE_PRISE_EN_COMPTE,
+      action: 'SOUMISSION',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.EN_PREPARATION],
       data: {
-        statut: 'VALIDEE',
-        validatedBy: dto.validatedBy ?? 'RESPONSABLE_MAINTENANCE',
-        dateValidation: new Date(),
-        motifRefus: null,
+        dateSoumission: new Date(),
       },
     });
-
-    return this.findOne(id);
   }
 
-  async refuser(id: number, dto: RefuserDemandeInterventionDto) {
-    const demande = await this.ensureDemandeExists(id);
-
-    if (demande.statut === 'VALIDEE') {
-      throw new ConflictException('Impossible de refuser une DI déjà validée.');
-    }
-
-    if (demande.statut === 'OT_GENERE') {
-      throw new ConflictException(
-        'Impossible de refuser une DI ayant déjà généré un OT.',
-      );
-    }
-
-    await this.prisma.demande_intervention.update({
-      where: {
-        idDemande: id,
-      },
+  async refuser(idDemande: number, dto: RefuserDemandeInterventionDto) {
+    return this.changeStatut(idDemande, {
+      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.REFUSE,
+      action: 'REFUS',
+      changedBy: dto.utilisateur,
+      commentaire: dto.motifRefus,
+      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.ATTENTE_PRISE_EN_COMPTE],
       data: {
-        statut: 'REFUSEE',
-        validatedBy: dto.validatedBy ?? 'RESPONSABLE_MAINTENANCE',
+        motifRefus: dto.motifRefus,
+        validatedBy: dto.utilisateur,
         dateValidation: new Date(),
-        motifRefus: dto.motifRefus ?? 'Demande refusée.',
       },
     });
-
-    return this.findOne(id);
   }
 
-  async generateOtCorrective(idDemande: number, dto: GenerateOtCorrectiveDto) {
-    const demande = await this.prisma.demande_intervention.findUnique({
-      where: {
-        idDemande,
-      },
-      include: {
-        materiel: true,
-        intervention: true,
-      },
-    });
+  async accepter(idDemande: number, dto: ActionDemandeInterventionDto) {
+    const demande = await this.findOne(idDemande);
 
-    if (!demande) {
-      throw new NotFoundException('Demande d’intervention introuvable.');
-    }
-
-    if (demande.statut !== 'VALIDEE') {
-      throw new ConflictException(
-        'La DI doit être validée avant de générer un OT correctif.',
+    if (
+      demande.statut !==
+      DEMANDE_INTERVENTION_STATUTS.ATTENTE_PRISE_EN_COMPTE
+    ) {
+      throw new BadRequestException(
+        `Acceptation impossible depuis le statut ${demande.statut}.`,
       );
     }
 
-    const existingOt = await this.prisma.intervention.findFirst({
-      where: {
-        idDemande,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const codeIntervention = await this.generateInterventionCodeTx(tx);
 
-    if (existingOt) {
-      throw new ConflictException(
-        'Un OT correctif existe déjà pour cette demande.',
-      );
-    }
-
-    if (dto.idGamme !== undefined) {
-      await this.ensureGammeExists(dto.idGamme);
-    }
-
-    if (dto.idEquipe !== undefined) {
-      await this.ensureEquipeExists(dto.idEquipe);
-    }
-
-    const codeOt = await this.generateCorrectiveCode();
-
-    const result = await this.prisma.$transaction(async (tx) => {
       const intervention = await tx.intervention.create({
         data: {
-          code: codeOt,
-          typeMaintenance: 'CORRECTIF',
-          dateDebut: new Date(),
-          dateFin: null,
-          etat: dto.idEquipe ? 'AFFECTEE_EQUIPE' : 'A_PLANIFIER',
-          idMateriel: demande.idMateriel,
-          idDemande: demande.idDemande,
-          idGamme: dto.idGamme ?? null,
-          idEquipe: dto.idEquipe ?? null,
-          origineGeneration: 'DEMANDE_INTERVENTION',
-          priorite: demande.priorite ?? 'NORMALE',
+          code: codeIntervention,
+
+          libelle: demande.description
+            ? demande.description.slice(0, 150)
+            : `OT correctif lié à ${demande.code ?? `DI-${demande.idDemande}`}`,
+
           description: demande.description,
-          createdBy:
-            dto.createdBy ??
-            demande.validatedBy ??
-            'RESPONSABLE_MAINTENANCE',
-          validatedBy: demande.validatedBy,
-          assignedBy: dto.idEquipe
-            ? dto.assignedBy ?? 'RESPONSABLE_MAINTENANCE'
-            : null,
-          dateAffectation: dto.idEquipe ? new Date() : null,
+
+          typeMaintenance: 'CORRECTIF',
+          typeIntervention: 'TRAVAUX',
+          natureIntervention: 'CURATIF',
+
+          priorite: demande.priorite ?? 'NORMALE',
+          criticite: demande.criticite ?? 'MOYENNE',
+
+          etat: 'EN_PREPARATION',
+          origineGeneration: 'DI',
+
+          receptionTravaux: demande.receptionTravaux ?? false,
+          materielEnPanne: demande.materielEnPanne ?? false,
+          materielIndisponible: demande.materielIndisponible ?? false,
+          arretMateriel: demande.materielIndisponible ?? false,
+
+          createdBy: dto.utilisateur,
+
+          demande_intervention: {
+            connect: {
+              idDemande: demande.idDemande,
+            },
+          },
+
+          materiel: demande.idMateriel
+            ? {
+                connect: {
+                  idMateriel: demande.idMateriel,
+                },
+              }
+            : undefined,
         },
       });
 
-      if (dto.idGamme !== undefined) {
-        const operations = await tx.gamme_operation.findMany({
-          where: {
-            idGamme: dto.idGamme,
-          },
-          orderBy: {
-            ordre: 'asc',
-          },
-        });
-
-        if (operations.length > 0) {
-          await tx.operation_intervention.createMany({
-            data: operations.map((operation) => ({
-              ordre: operation.ordre,
-              libelle: operation.libelle,
-              tempsPasse: operation.tempsStandard,
-              idIntervention: intervention.idIntervention,
-              description: operation.description,
-              obligatoire: operation.obligatoire ?? false,
-              idGammeOperationSource: operation.idOperation,
-            })),
-          });
-        }
-      }
+      await tx.historique_etat_intervention.create({
+        data: {
+          idIntervention: intervention.idIntervention,
+          ancienEtat: null,
+          nouvelEtat: 'EN_PREPARATION',
+          action: 'CREATION_DEPUIS_DI',
+          commentaire: `Création de l’OT depuis la DI ${
+            demande.code ?? demande.idDemande
+          }`,
+          changedBy: dto.utilisateur,
+          changedAt: new Date(),
+        },
+      });
 
       await tx.demande_intervention.update({
-        where: {
-          idDemande,
-        },
+        where: { idDemande },
         data: {
-          statut: 'OT_GENERE',
+          statut: DEMANDE_INTERVENTION_STATUTS.ATTENTE_REALISATION,
+          validatedBy: dto.utilisateur,
+          dateValidation: new Date(),
         },
       });
 
-      return intervention;
-    });
-
-    return {
-      message: 'OT correctif généré avec succès.',
-      intervention: await this.prisma.intervention.findUnique({
-        where: {
-          idIntervention: result.idIntervention,
-        },
-        include: {
-          materiel: true,
-          demande_intervention: true,
-          gamme: true,
-          equipe_maintenance: true,
-          operation_intervention: {
-            orderBy: {
-              ordre: 'asc',
-            },
-          },
-          affectation_technicien: {
-            include: {
-              technicien: true,
-            },
-          },
-        },
-      }),
-    };
-  }
-
-  async dashboardResponsable() {
-    const [
-      total,
-      enAttente,
-      validees,
-      refusees,
-      otGeneres,
-      urgentes,
-      demandes,
-    ] = await Promise.all([
-      this.prisma.demande_intervention.count(),
-      this.prisma.demande_intervention.count({
-        where: { statut: 'EN_ATTENTE_VALIDATION' },
-      }),
-      this.prisma.demande_intervention.count({
-        where: { statut: 'VALIDEE' },
-      }),
-      this.prisma.demande_intervention.count({
-        where: { statut: 'REFUSEE' },
-      }),
-      this.prisma.demande_intervention.count({
-        where: { statut: 'OT_GENERE' },
-      }),
-      this.prisma.demande_intervention.count({
-        where: { priorite: 'URGENTE' },
-      }),
-      this.prisma.demande_intervention.findMany({
-        orderBy: {
-          idDemande: 'desc',
-        },
-        include: this.defaultInclude(),
-      }),
-    ]);
-
-    return {
-      stats: {
-        total,
-        enAttente,
-        validees,
-        refusees,
-        otGeneres,
-        urgentes,
-      },
-      demandes,
-    };
-  }
-
-  async findByStatut(statut: string) {
-    return this.prisma.demande_intervention.findMany({
-      where: {
-        statut,
-      },
-      orderBy: {
-        idDemande: 'desc',
-      },
-      include: this.defaultInclude(),
-    });
-  }
-
-  private async ensureDemandeExists(idDemande: number) {
-    const demande = await this.prisma.demande_intervention.findUnique({
-      where: {
+      await this.createHistoriqueEtatTx(tx, {
         idDemande,
-      },
-      select: {
-        idDemande: true,
-        statut: true,
+        ancienStatut: demande.statut,
+        nouveauStatut: DEMANDE_INTERVENTION_STATUTS.ATTENTE_REALISATION,
+        action: 'ACCEPTATION',
+        commentaire:
+          dto.commentaire ??
+          `DI acceptée, OT ${intervention.code} créé automatiquement.`,
+        changedBy: dto.utilisateur,
+      });
+
+      const demandeUpdated = await tx.demande_intervention.findUnique({
+        where: { idDemande },
+        include: demandeInclude,
+      });
+
+      return {
+        demande: demandeUpdated,
+        interventionCreee: intervention,
+      };
+    });
+  }
+
+  async accepterTravaux(idDemande: number, dto: ActionDemandeInterventionDto) {
+    return this.changeStatut(idDemande, {
+      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.SOLDE,
+      action: 'ACCEPTER_TRAVAUX',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.TERMINE],
+      data: {
+        receptionBy: dto.utilisateur,
+        dateReceptionTravaux: new Date(),
       },
     });
+  }
 
-    if (!demande) {
-      throw new NotFoundException('Demande d’intervention introuvable.');
+  async refuserTravaux(idDemande: number, dto: RefuserTravauxDemandeDto) {
+    return this.changeStatut(idDemande, {
+      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.ATTENTE_REALISATION,
+      action: 'REFUSER_TRAVAUX',
+      changedBy: dto.utilisateur,
+      commentaire: dto.motifRefusTravaux,
+      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.TERMINE],
+      data: {
+        motifRefusTravaux: dto.motifRefusTravaux,
+      },
+    });
+  }
+
+  private async changeStatut(
+    idDemande: number,
+    params: {
+      nouveauStatut: string;
+      action: string;
+      changedBy?: string;
+      commentaire?: string;
+      allowedFrom: string[];
+      data: Prisma.demande_interventionUpdateInput;
+    },
+  ) {
+    const demande = await this.findOne(idDemande);
+    const ancienStatut = demande.statut;
+
+    if (!ancienStatut || !params.allowedFrom.includes(ancienStatut)) {
+      throw new BadRequestException(
+        `Transition impossible : ${ancienStatut} → ${params.nouveauStatut}`,
+      );
     }
 
-    return demande;
+    if (
+      ancienStatut === DEMANDE_INTERVENTION_STATUTS.SOLDE ||
+      ancienStatut === DEMANDE_INTERVENTION_STATUTS.REFUSE ||
+      ancienStatut === DEMANDE_INTERVENTION_STATUTS.ANNULE
+    ) {
+      throw new BadRequestException(
+        'Cette DI est soldée, refusée ou annulée. Modification impossible.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.demande_intervention.update({
+        where: { idDemande },
+        data: {
+          ...params.data,
+          statut: params.nouveauStatut,
+        },
+      });
+
+      await this.createHistoriqueEtatTx(tx, {
+        idDemande,
+        ancienStatut,
+        nouveauStatut: params.nouveauStatut,
+        action: params.action,
+        commentaire: params.commentaire,
+        changedBy: params.changedBy,
+      });
+
+      return tx.demande_intervention.findUnique({
+        where: { idDemande: updated.idDemande },
+        include: demandeInclude,
+      });
+    });
+  }
+
+  private async createHistoriqueEtatTx(
+    tx: Prisma.TransactionClient,
+    data: {
+      idDemande: number;
+      ancienStatut?: string | null;
+      nouveauStatut: string;
+      action?: string;
+      commentaire?: string;
+      changedBy?: string;
+    },
+  ) {
+    return tx.historique_etat_demande_intervention.create({
+      data: {
+        idDemande: data.idDemande,
+        ancienStatut: data.ancienStatut,
+        nouveauStatut: data.nouveauStatut,
+        action: data.action,
+        commentaire: data.commentaire,
+        changedBy: data.changedBy,
+        changedAt: new Date(),
+      },
+    });
+  }
+
+  private ensureModifiable(statut?: string | null) {
+    if (
+      statut === DEMANDE_INTERVENTION_STATUTS.SOLDE ||
+      statut === DEMANDE_INTERVENTION_STATUTS.REFUSE ||
+      statut === DEMANDE_INTERVENTION_STATUTS.ANNULE
+    ) {
+      throw new BadRequestException(
+        'Cette DI est soldée, refusée ou annulée. Modification impossible.',
+      );
+    }
+  }
+
+  private parseDate(value?: string): Date | undefined {
+    if (!value) return undefined;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`Date invalide : ${value}`);
+    }
+
+    return date;
   }
 
   private async ensureMaterielExists(idMateriel: number) {
     const materiel = await this.prisma.materiel.findUnique({
-      where: {
-        idMateriel,
-      },
-      select: {
-        idMateriel: true,
-      },
+      where: { idMateriel },
     });
 
     if (!materiel) {
       throw new NotFoundException('Matériel introuvable.');
     }
-
-    return materiel;
   }
 
-  private async ensureGammeExists(idGamme: number) {
-    const gamme = await this.prisma.gamme.findUnique({
-      where: {
-        idGamme,
-      },
-      select: {
-        idGamme: true,
-      },
-    });
+  private async generateDemandeCode() {
+    const count = await this.prisma.demande_intervention.count();
+    let index = count + 1;
 
-    if (!gamme) {
-      throw new NotFoundException('Gamme introuvable.');
+    while (true) {
+      const code = `DI-${String(index).padStart(6, '0')}`;
+
+      const exists = await this.prisma.demande_intervention.findFirst({
+        where: { code },
+      });
+
+      if (!exists) return code;
+
+      index++;
     }
-
-    return gamme;
   }
 
-  private async ensureEquipeExists(idEquipe: number) {
-    const equipe = await this.prisma.equipe_maintenance.findUnique({
-      where: {
-        idEquipe,
-      },
-      select: {
-        idEquipe: true,
-      },
-    });
+  private async generateInterventionCodeTx(tx: Prisma.TransactionClient) {
+    const count = await tx.intervention.count();
+    let index = count + 1;
 
-    if (!equipe) {
-      throw new NotFoundException('Equipe introuvable.');
+    while (true) {
+      const code = `OT-COR-${String(index).padStart(6, '0')}`;
+
+      const exists = await tx.intervention.findFirst({
+        where: { code },
+      });
+
+      if (!exists) return code;
+
+      index++;
     }
-
-    return equipe;
-  }
-
-  private async generateCorrectiveCode() {
-    const count = await this.prisma.intervention.count({
-      where: {
-        typeMaintenance: 'CORRECTIF',
-      },
-    });
-
-    return `OT-COR-${String(count + 1).padStart(5, '0')}`;
-  }
-
-  private defaultInclude() {
-    return {
-      materiel: {
-        include: {
-          modele: true,
-          etat_materiel: true,
-          type_materiel: true,
-        },
-      },
-      intervention: {
-        orderBy: {
-          idIntervention: 'desc' as const,
-        },
-      },
-    };
   }
 }

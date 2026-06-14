@@ -82,18 +82,18 @@ export class MaterielService {
     },
 
     plan_preventif: {
-  include: {
-    plan_preventif_declencheur: {
       include: {
-        gamme: true,
-        point_mesure: true,
-      },
-      orderBy: {
-        priorite: 'asc',
+        plan_preventif_declencheur: {
+          include: {
+            gamme: true,
+            point_mesure: true,
+          },
+          orderBy: {
+            priorite: 'asc',
+          },
+        },
       },
     },
-  },
-},
 
     intervention: {
       include: {
@@ -208,14 +208,25 @@ export class MaterielService {
     await this.checkUniqueCode(code);
     await this.checkUniqueNumeroSerie(createDto.numeroSerie);
 
-    const idEtat = await this.resolveEtatCreation(createDto.idEtat);
+    const refs = this.normalizeReferences(createDto);
+    await this.validateReferences(refs);
 
-    await this.findEtatOrFail(idEtat);
-    await this.validateReferences(createDto);
+    const idEtatRecu = this.normalizeOptionalNumber(
+      createDto.idEtat,
+      'État matériel',
+    );
+    const idEtat = await this.resolveEtatCreation(idEtatRecu);
+    const etat = await this.findEtatOrFail(idEtat);
 
-    const gereEnStock = createDto.gereEnStock ?? false;
+    const gereEnStock =
+      this.normalizeOptionalBoolean(createDto.gereEnStock, 'Géré en stock') ??
+      false;
 
-    if (gereEnStock && createDto.dateDernierInventaire) {
+    const dateDernierInventaire = this.parseOptionalDate(
+      createDto.dateDernierInventaire,
+    );
+
+    if (gereEnStock === true && dateDernierInventaire !== null) {
       throw new BadRequestException(
         "Le dernier inventaire d'un matériel géré en stock doit être mis à jour depuis le module stock.",
       );
@@ -225,32 +236,32 @@ export class MaterielService {
       this.normalizeOptionalString(createDto.positionActuelle) ??
       (gereEnStock ? 'EN_STOCK' : 'SUR_TERRAIN');
 
+    const actif =
+      this.normalizeOptionalBoolean(createDto.actif, 'Actif') ?? true;
+
     const data: any = {
       code,
       libelle,
       numeroSerie: this.normalizeOptionalString(createDto.numeroSerie),
 
       dateMiseService: this.parseOptionalDate(createDto.dateMiseService),
-      dateDernierInventaire: this.parseOptionalDate(
-        createDto.dateDernierInventaire,
-      ),
+      dateDernierInventaire,
       dateRebut: this.parseOptionalDate(createDto.dateRebut),
       motifRebut: this.normalizeOptionalString(createDto.motifRebut),
 
       gereEnStock,
       positionActuelle,
 
-      idModele: createDto.idModele ?? null,
+      idModele: refs.idModele ?? null,
       idEtat,
-      idType: createDto.idType ?? null,
-      idPointStructure: createDto.idPointStructure ?? null,
-      idMaterielParent: createDto.idMaterielParent ?? null,
-      idLigneEntreeStock: createDto.idLigneEntreeStock ?? null,
+      idType: refs.idType ?? null,
+      idPointStructure: refs.idPointStructure ?? null,
+      idMaterielParent: refs.idMaterielParent ?? null,
+      idLigneEntreeStock: refs.idLigneEntreeStock ?? null,
 
-      actif: createDto.actif ?? true,
+      actif,
     };
 
-    const etat = await this.findEtatOrFail(idEtat);
     this.appliquerEffetsEtat(data, this.getCodeEtat(etat), createDto.motifRebut);
 
     const materiel = await this.prisma.materiel.create({
@@ -273,9 +284,15 @@ export class MaterielService {
   }
 
   async findOne(id: number) {
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
+
     const materiel = await this.prisma.materiel.findUnique({
       where: {
-        idMateriel: id,
+        idMateriel,
       },
       include: this.includeRelations,
     });
@@ -288,7 +305,13 @@ export class MaterielService {
   }
 
   async update(id: number, updateDto: UpdateMaterielDto) {
-    const materiel = await this.findOne(id);
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
+
+    const materiel = await this.findOne(idMateriel);
 
     const data: any = {};
 
@@ -298,7 +321,7 @@ export class MaterielService {
         'Le code du matériel est obligatoire.',
       );
 
-      await this.checkUniqueCode(code, id);
+      await this.checkUniqueCode(code, idMateriel);
       data.code = code;
     }
 
@@ -310,47 +333,82 @@ export class MaterielService {
     }
 
     if (updateDto.numeroSerie !== undefined) {
-      await this.checkUniqueNumeroSerie(updateDto.numeroSerie, id);
+      await this.checkUniqueNumeroSerie(updateDto.numeroSerie, idMateriel);
       data.numeroSerie = this.normalizeOptionalString(updateDto.numeroSerie);
     }
 
     if (updateDto.idEtat !== undefined) {
-      if (updateDto.idEtat === null) {
-        throw new BadRequestException("L'état du matériel est obligatoire.");
-      }
+      const idEtat = this.normalizeRequiredNumber(
+        updateDto.idEtat,
+        "L'état du matériel est obligatoire.",
+        'État matériel invalide.',
+      );
 
-      const nouvelEtat = await this.findEtatOrFail(updateDto.idEtat);
+      const nouvelEtat = await this.findEtatOrFail(idEtat);
 
       const ancienCodeEtat = materiel.etat_materiel?.code ?? null;
       const nouveauCodeEtat = this.getCodeEtat(nouvelEtat);
 
       this.verifierTransitionEtat(ancienCodeEtat, nouveauCodeEtat);
 
-      data.idEtat = updateDto.idEtat;
+      data.idEtat = idEtat;
       this.appliquerEffetsEtat(data, nouveauCodeEtat, updateDto.motifRebut);
     }
 
-    await this.validateReferences(updateDto, id);
+    const refs = this.normalizeReferences(updateDto);
+    await this.validateReferences(refs, idMateriel);
 
-    const finalGereEnStock = updateDto.gereEnStock ?? materiel.gereEnStock;
-
-    if (
-      finalGereEnStock === true &&
-      updateDto.dateDernierInventaire !== undefined
-    ) {
-      throw new BadRequestException(
-        "Le dernier inventaire d'un matériel géré en stock doit être modifié depuis le module stock.",
-      );
+    if (refs.idModele !== undefined) {
+      data.idModele = refs.idModele;
     }
+
+    if (refs.idType !== undefined) {
+      data.idType = refs.idType;
+    }
+
+    if (refs.idPointStructure !== undefined) {
+      data.idPointStructure = refs.idPointStructure;
+    }
+
+    if (refs.idMaterielParent !== undefined) {
+      data.idMaterielParent = refs.idMaterielParent;
+    }
+
+    if (refs.idLigneEntreeStock !== undefined) {
+      data.idLigneEntreeStock = refs.idLigneEntreeStock;
+    }
+
+    const gereEnStock = this.normalizeOptionalBoolean(
+      updateDto.gereEnStock,
+      'Géré en stock',
+    );
+
+    const finalGereEnStock = gereEnStock ?? materiel.gereEnStock ?? false;
 
     if (updateDto.dateMiseService !== undefined) {
       data.dateMiseService = this.parseOptionalDate(updateDto.dateMiseService);
     }
 
     if (updateDto.dateDernierInventaire !== undefined) {
-      data.dateDernierInventaire = this.parseOptionalDate(
+      const nouvelleDateDernierInventaire = this.parseOptionalDate(
         updateDto.dateDernierInventaire,
       );
+
+      if (
+        finalGereEnStock === true &&
+        !this.sameDateValue(
+          nouvelleDateDernierInventaire,
+          materiel.dateDernierInventaire,
+        )
+      ) {
+        throw new BadRequestException(
+          "Le dernier inventaire d'un matériel géré en stock doit être modifié depuis le module stock.",
+        );
+      }
+
+      if (finalGereEnStock !== true) {
+        data.dateDernierInventaire = nouvelleDateDernierInventaire;
+      }
     }
 
     if (updateDto.dateRebut !== undefined) {
@@ -361,8 +419,8 @@ export class MaterielService {
       data.motifRebut = this.normalizeOptionalString(updateDto.motifRebut);
     }
 
-    if (updateDto.gereEnStock !== undefined) {
-      data.gereEnStock = updateDto.gereEnStock;
+    if (gereEnStock !== undefined) {
+      data.gereEnStock = gereEnStock;
     }
 
     if (updateDto.positionActuelle !== undefined) {
@@ -371,33 +429,15 @@ export class MaterielService {
       );
     }
 
-    if (updateDto.idModele !== undefined) {
-      data.idModele = updateDto.idModele ?? null;
-    }
+    const actif = this.normalizeOptionalBoolean(updateDto.actif, 'Actif');
 
-    if (updateDto.idType !== undefined) {
-      data.idType = updateDto.idType ?? null;
-    }
-
-    if (updateDto.idPointStructure !== undefined) {
-      data.idPointStructure = updateDto.idPointStructure ?? null;
-    }
-
-    if (updateDto.idMaterielParent !== undefined) {
-      data.idMaterielParent = updateDto.idMaterielParent ?? null;
-    }
-
-    if (updateDto.idLigneEntreeStock !== undefined) {
-      data.idLigneEntreeStock = updateDto.idLigneEntreeStock ?? null;
-    }
-
-    if (updateDto.actif !== undefined) {
-      data.actif = updateDto.actif;
+    if (actif !== undefined) {
+      data.actif = actif;
     }
 
     const updatedMateriel = await this.prisma.materiel.update({
       where: {
-        idMateriel: id,
+        idMateriel,
       },
       data,
       include: this.includeRelations,
@@ -407,32 +447,31 @@ export class MaterielService {
   }
 
   async updateCycleVie(id: number, dto: UpdateCycleVieMaterielDto) {
-    const materiel = await this.findOne(id);
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
 
-    if (
-      materiel.gereEnStock === true &&
-      dto.dateDernierInventaire !== undefined
-    ) {
-      throw new BadRequestException(
-        "Ce matériel est géré en stock. Son dernier inventaire doit être modifié depuis le module stock.",
-      );
-    }
+    const materiel = await this.findOne(idMateriel);
 
     const data: any = {};
 
     if (dto.idEtat !== undefined) {
-      if (dto.idEtat === null) {
-        throw new BadRequestException("L'état du matériel est obligatoire.");
-      }
+      const idEtat = this.normalizeRequiredNumber(
+        dto.idEtat,
+        "L'état du matériel est obligatoire.",
+        'État matériel invalide.',
+      );
 
-      const nouvelEtat = await this.findEtatOrFail(dto.idEtat);
+      const nouvelEtat = await this.findEtatOrFail(idEtat);
 
       const ancienCodeEtat = materiel.etat_materiel?.code ?? null;
       const nouveauCodeEtat = this.getCodeEtat(nouvelEtat);
 
       this.verifierTransitionEtat(ancienCodeEtat, nouveauCodeEtat);
 
-      data.idEtat = dto.idEtat;
+      data.idEtat = idEtat;
       this.appliquerEffetsEtat(data, nouveauCodeEtat, dto.motifRebut);
     }
 
@@ -441,9 +480,25 @@ export class MaterielService {
     }
 
     if (dto.dateDernierInventaire !== undefined) {
-      data.dateDernierInventaire = this.parseOptionalDate(
+      const nouvelleDateDernierInventaire = this.parseOptionalDate(
         dto.dateDernierInventaire,
       );
+
+      if (
+        materiel.gereEnStock === true &&
+        !this.sameDateValue(
+          nouvelleDateDernierInventaire,
+          materiel.dateDernierInventaire,
+        )
+      ) {
+        throw new BadRequestException(
+          "Ce matériel est géré en stock. Son dernier inventaire doit être modifié depuis le module stock.",
+        );
+      }
+
+      if (materiel.gereEnStock !== true) {
+        data.dateDernierInventaire = nouvelleDateDernierInventaire;
+      }
     }
 
     if (dto.dateRebut !== undefined) {
@@ -456,7 +511,7 @@ export class MaterielService {
 
     const updatedMateriel = await this.prisma.materiel.update({
       where: {
-        idMateriel: id,
+        idMateriel,
       },
       data,
       include: this.includeRelations,
@@ -466,12 +521,20 @@ export class MaterielService {
   }
 
   async changerEtatMateriel(id: number, dto: ChangeEtatMaterielDto) {
-    if (dto.idEtat === undefined || dto.idEtat === null) {
-      throw new BadRequestException("L'état du matériel est obligatoire.");
-    }
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
 
-    const materiel = await this.findOne(id);
-    const nouvelEtat = await this.findEtatOrFail(dto.idEtat);
+    const idEtat = this.normalizeRequiredNumber(
+      dto.idEtat,
+      "L'état du matériel est obligatoire.",
+      'État matériel invalide.',
+    );
+
+    const materiel = await this.findOne(idMateriel);
+    const nouvelEtat = await this.findEtatOrFail(idEtat);
 
     const ancienCodeEtat = materiel.etat_materiel?.code ?? null;
     const nouveauCodeEtat = this.getCodeEtat(nouvelEtat);
@@ -479,14 +542,14 @@ export class MaterielService {
     this.verifierTransitionEtat(ancienCodeEtat, nouveauCodeEtat);
 
     const data: any = {
-      idEtat: dto.idEtat,
+      idEtat,
     };
 
     this.appliquerEffetsEtat(data, nouveauCodeEtat, dto.motif);
 
     const updatedMateriel = await this.prisma.materiel.update({
       where: {
-        idMateriel: id,
+        idMateriel,
       },
       data,
       include: this.includeRelations,
@@ -507,7 +570,7 @@ export class MaterielService {
 
     if (!ETATS_INTERVENTION_AUTORISES.includes(codeEtat)) {
       throw new BadRequestException(
-        "Ce matériel ne peut pas être ciblé par une intervention. Il doit être Validé, En panne ou En révision.",
+        'Ce matériel ne peut pas être ciblé par une intervention. Il doit être Validé, En panne ou En révision.',
       );
     }
 
@@ -522,7 +585,13 @@ export class MaterielService {
     idMateriel: number,
     dateInventaire: Date,
   ) {
-    const materiel = await this.findOne(idMateriel);
+    const idMaterielNormalise = this.normalizeRequiredNumber(
+      idMateriel,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
+
+    const materiel = await this.findOne(idMaterielNormalise);
 
     if (materiel.gereEnStock !== true) {
       throw new BadRequestException(
@@ -532,111 +601,128 @@ export class MaterielService {
 
     const updatedMateriel = await this.prisma.materiel.update({
       where: {
-        idMateriel,
+        idMateriel: idMaterielNormalise,
       },
       data: {
-        dateDernierInventaire: dateInventaire,
+        dateDernierInventaire: this.parseRequiredDate(
+          dateInventaire,
+          'Date inventaire invalide.',
+        ),
       },
       include: this.includeRelations,
     });
 
     return this.formatMateriel(updatedMateriel);
   }
-async genererPlanPreventifDepuisPPP(
-  idMateriel: number,
-  idPlanPreventifPredefini: number,
-) {
-  const materiel = await this.findOne(idMateriel);
 
-  if (!materiel.idModele) {
-    throw new BadRequestException(
-      'Ce matériel n’a pas de modèle. Impossible de générer un plan préventif prédéfini.',
+  async genererPlanPreventifDepuisPPP(
+    idMateriel: number,
+    idPlanPreventifPredefini: number,
+  ) {
+    const idMaterielNormalise = this.normalizeRequiredNumber(
+      idMateriel,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
     );
-  }
 
-  const ppp = await this.prisma.plan_preventif_predefini.findFirst({
-    where: {
+    const idPlanNormalise = this.normalizeRequiredNumber(
       idPlanPreventifPredefini,
-      actif: true,
-      OR: [
-        { idModele: materiel.idModele },
-        {
-          modele_plan_preventif_predefini: {
-            some: {
-              idModele: materiel.idModele,
-              actif: true,
+      'Identifiant du plan préventif prédéfini obligatoire.',
+      'Identifiant du plan préventif prédéfini invalide.',
+    );
+
+    const materiel = await this.findOne(idMaterielNormalise);
+
+    if (!materiel.idModele) {
+      throw new BadRequestException(
+        'Ce matériel n’a pas de modèle. Impossible de générer un plan préventif prédéfini.',
+      );
+    }
+
+    const ppp = await this.prisma.plan_preventif_predefini.findFirst({
+      where: {
+        idPlanPreventifPredefini: idPlanNormalise,
+        actif: true,
+        OR: [
+          { idModele: materiel.idModele },
+          {
+            modele_plan_preventif_predefini: {
+              some: {
+                idModele: materiel.idModele,
+                actif: true,
+              },
             },
           },
-        },
-      ],
-    },
-    include: {
-      ppp_declencheur: true,
-    },
-  });
-
-  if (!ppp) {
-    throw new NotFoundException(
-      'Plan préventif prédéfini introuvable pour le modèle de ce matériel.',
-    );
-  }
-
-  const existing = await this.prisma.plan_preventif.findFirst({
-    where: {
-      idMateriel,
-      idPlanPreventifPredefiniSource: idPlanPreventifPredefini,
-    },
-  });
-
-  if (existing) {
-    throw new BadRequestException(
-      'Ce plan préventif a déjà été généré pour ce matériel.',
-    );
-  }
-
-  const plan = await this.prisma.plan_preventif.create({
-    data: {
-      code: `PP-${materiel.code || idMateriel}-${ppp.code}`,
-      libelle: ppp.titre || ppp.code,
-      etat: ppp.etat || 'ACTIF',
-      typeDeclenchement: ppp.typeDeclenchement,
-      organisation: ppp.organisation,
-      idMateriel,
-      idPlanPreventifPredefiniSource: ppp.idPlanPreventifPredefini,
-      actif: true,
-    },
-  });
-
-  for (const declencheur of ppp.ppp_declencheur) {
-    await this.prisma.plan_preventif_declencheur.create({
-      data: {
-        idPlanPreventif: plan.idPlanPreventif,
-        idPppDeclencheurSource: declencheur.idPppDeclencheur,
-        priorite: declencheur.priorite,
-        etat: declencheur.etat,
-        typeDeclencheur: declencheur.typeDeclencheur,
-        idGamme: declencheur.idGamme,
-        idMateriel,
-        idModele: materiel.idModele,
-        idPointMesure: declencheur.idPointMesure,
-        etatInterventionCible: declencheur.etatInterventionCible,
-        horizonJours: declencheur.horizonJours,
-        toleranceJours: declencheur.toleranceJours,
-        actualisation: declencheur.actualisation,
-        periodiciteValeur: declencheur.periodiciteValeur,
-        periodiciteUnite: declencheur.periodiciteUnite,
-        seuilValeur: declencheur.seuilValeur,
-        operateur: declencheur.operateur,
-        symptomeCode: declencheur.symptomeCode,
-        saisonnaliteDu: declencheur.saisonnaliteDu,
-        saisonnaliteAu: declencheur.saisonnaliteAu,
-        actif: declencheur.actif ?? true,
+        ],
+      },
+      include: {
+        ppp_declencheur: true,
       },
     });
+
+    if (!ppp) {
+      throw new NotFoundException(
+        'Plan préventif prédéfini introuvable pour le modèle de ce matériel.',
+      );
+    }
+
+    const existing = await this.prisma.plan_preventif.findFirst({
+      where: {
+        idMateriel: idMaterielNormalise,
+        idPlanPreventifPredefiniSource: idPlanNormalise,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException(
+        'Ce plan préventif a déjà été généré pour ce matériel.',
+      );
+    }
+
+    const plan = await this.prisma.plan_preventif.create({
+      data: {
+        code: `PP-${materiel.code || idMaterielNormalise}-${ppp.code}`,
+        libelle: ppp.titre || ppp.code,
+        etat: ppp.etat || 'ACTIF',
+        typeDeclenchement: ppp.typeDeclenchement,
+        organisation: ppp.organisation,
+        idMateriel: idMaterielNormalise,
+        idPlanPreventifPredefiniSource: ppp.idPlanPreventifPredefini,
+        actif: true,
+      },
+    });
+
+    for (const declencheur of ppp.ppp_declencheur) {
+      await this.prisma.plan_preventif_declencheur.create({
+        data: {
+          idPlanPreventif: plan.idPlanPreventif,
+          idPppDeclencheurSource: declencheur.idPppDeclencheur,
+          priorite: declencheur.priorite,
+          etat: declencheur.etat,
+          typeDeclencheur: declencheur.typeDeclencheur,
+          idGamme: declencheur.idGamme,
+          idMateriel: idMaterielNormalise,
+          idModele: materiel.idModele,
+          idPointMesure: declencheur.idPointMesure,
+          etatInterventionCible: declencheur.etatInterventionCible,
+          horizonJours: declencheur.horizonJours,
+          toleranceJours: declencheur.toleranceJours,
+          actualisation: declencheur.actualisation,
+          periodiciteValeur: declencheur.periodiciteValeur,
+          periodiciteUnite: declencheur.periodiciteUnite,
+          seuilValeur: declencheur.seuilValeur,
+          operateur: declencheur.operateur,
+          symptomeCode: declencheur.symptomeCode,
+          saisonnaliteDu: declencheur.saisonnaliteDu,
+          saisonnaliteAu: declencheur.saisonnaliteAu,
+          actif: declencheur.actif ?? true,
+        },
+      });
+    }
+
+    return this.findOne(idMaterielNormalise);
   }
 
-  return this.findOne(idMateriel);
-}
   async findEtatsMateriel() {
     return this.prisma.etat_materiel.findMany({
       orderBy: {
@@ -654,13 +740,45 @@ async genererPlanPreventifDepuisPPP(
   }
 
   async remove(id: number) {
-    await this.findOne(id);
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
+
+    await this.findOne(idMateriel);
 
     return this.prisma.materiel.delete({
       where: {
-        idMateriel: id,
+        idMateriel,
       },
     });
+  }
+
+  async restore(id: number) {
+    const idMateriel = this.normalizeRequiredNumber(
+      id,
+      'Identifiant du matériel obligatoire.',
+      'Identifiant du matériel invalide.',
+    );
+
+    const materiel = await this.prisma.materiel.findUnique({
+      where: { idMateriel },
+    });
+
+    if (!materiel) {
+      throw new NotFoundException(`Matériel ${idMateriel} introuvable.`);
+    }
+
+    const updatedMateriel = await this.prisma.materiel.update({
+      where: { idMateriel },
+      data: {
+        actif: true,
+      },
+      include: this.includeRelations,
+    });
+
+    return this.formatMateriel(updatedMateriel);
   }
 
   private async resolveEtatCreation(idEtat?: number | null) {
@@ -681,6 +799,31 @@ async genererPlanPreventifDepuisPPP(
     }
 
     return etatPreparation.idEtat;
+  }
+
+  private normalizeReferences(dto: {
+    idModele?: any;
+    idType?: any;
+    idPointStructure?: any;
+    idMaterielParent?: any;
+    idLigneEntreeStock?: any;
+  }) {
+    return {
+      idModele: this.normalizeOptionalNumber(dto.idModele, 'Modèle'),
+      idType: this.normalizeOptionalNumber(dto.idType, 'Type de matériel'),
+      idPointStructure: this.normalizeOptionalNumber(
+        dto.idPointStructure,
+        'Point de structure',
+      ),
+      idMaterielParent: this.normalizeOptionalNumber(
+        dto.idMaterielParent,
+        'Matériel parent',
+      ),
+      idLigneEntreeStock: this.normalizeOptionalNumber(
+        dto.idLigneEntreeStock,
+        'Ligne entrée stock',
+      ),
+    };
   }
 
   private async validateReferences(
@@ -770,9 +913,15 @@ async genererPlanPreventifDepuisPPP(
   }
 
   private async findEtatOrFail(idEtat: number) {
+    const idEtatNormalise = this.normalizeRequiredNumber(
+      idEtat,
+      "L'état du matériel est obligatoire.",
+      'État matériel invalide.',
+    );
+
     const etat = await this.prisma.etat_materiel.findUnique({
       where: {
-        idEtat,
+        idEtat: idEtatNormalise,
       },
     });
 
@@ -787,11 +936,13 @@ async genererPlanPreventifDepuisPPP(
     const existing = await this.prisma.materiel.findFirst({
       where: {
         code,
-        ...(currentId && {
-          NOT: {
-            idMateriel: currentId,
-          },
-        }),
+        ...(currentId
+          ? {
+              NOT: {
+                idMateriel: currentId,
+              },
+            }
+          : {}),
       },
     });
 
@@ -811,11 +962,13 @@ async genererPlanPreventifDepuisPPP(
     const existing = await this.prisma.materiel.findFirst({
       where: {
         numeroSerie: normalized,
-        ...(currentId && {
-          NOT: {
-            idMateriel: currentId,
-          },
-        }),
+        ...(currentId
+          ? {
+              NOT: {
+                idMateriel: currentId,
+              },
+            }
+          : {}),
       },
     });
 
@@ -878,16 +1031,16 @@ async genererPlanPreventifDepuisPPP(
     }
   }
 
-  private normalizeOptionalString(value?: string | null) {
+  private normalizeOptionalString(value?: any) {
     if (value === undefined || value === null) return null;
 
-    const trimmed = value.trim();
+    const trimmed = String(value).trim();
 
     return trimmed.length > 0 ? trimmed : null;
   }
 
-  private normalizeRequiredString(value: string | null | undefined, message: string) {
-    const trimmed = value?.trim() ?? '';
+  private normalizeRequiredString(value: any, message: string) {
+    const trimmed = String(value ?? '').trim();
 
     if (!trimmed) {
       throw new BadRequestException(message);
@@ -896,8 +1049,66 @@ async genererPlanPreventifDepuisPPP(
     return trimmed;
   }
 
-  private parseOptionalDate(value?: string | Date | null) {
-    if (!value) return null;
+  private normalizeOptionalNumber(value: any, fieldName: string) {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+
+    const numberValue = Number(value);
+
+    if (!Number.isInteger(numberValue) || numberValue <= 0) {
+      throw new BadRequestException(`${fieldName} invalide.`);
+    }
+
+    return numberValue;
+  }
+
+  private normalizeRequiredNumber(
+    value: any,
+    requiredMessage: string,
+    invalidMessage: string,
+  ) {
+    if (value === undefined || value === null || value === '') {
+      throw new BadRequestException(requiredMessage);
+    }
+
+    const numberValue = Number(value);
+
+    if (!Number.isInteger(numberValue) || numberValue <= 0) {
+      throw new BadRequestException(invalidMessage);
+    }
+
+    return numberValue;
+  }
+
+  private normalizeOptionalBoolean(value: any, fieldName: string) {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+
+    if (['true', '1', 'oui', 'yes', 'actif', 'active'].includes(normalized)) {
+      return true;
+    }
+
+    if (['false', '0', 'non', 'no', 'inactif', 'inactive'].includes(normalized)) {
+      return false;
+    }
+
+    throw new BadRequestException(`${fieldName} invalide.`);
+  }
+
+  private parseOptionalDate(value?: any) {
+    if (value === undefined || value === null || value === '') return null;
 
     const date = new Date(value);
 
@@ -906,6 +1117,35 @@ async genererPlanPreventifDepuisPPP(
     }
 
     return date;
+  }
+
+  private parseRequiredDate(value: any, message: string) {
+    const date = this.parseOptionalDate(value);
+
+    if (!date) {
+      throw new BadRequestException(message);
+    }
+
+    return date;
+  }
+
+  private sameDateValue(dateA?: Date | string | null, dateB?: Date | string | null) {
+    const keyA = this.toDateKey(dateA);
+    const keyB = this.toDateKey(dateB);
+
+    return keyA === keyB;
+  }
+
+  private toDateKey(value?: Date | string | null) {
+    if (!value) return null;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException('Date invalide.');
+    }
+
+    return date.toISOString().slice(0, 10);
   }
 
   private calculerDateFinGarantie(
@@ -922,21 +1162,4 @@ async genererPlanPreventifDepuisPPP(
 
     return date;
   }
-  async restore(id: number) {
-  const materiel = await this.prisma.materiel.findUnique({
-    where: { idMateriel: id },
-  });
-
-  if (!materiel) {
-    throw new NotFoundException(`Matériel ${id} introuvable.`);
-  }
-
-  return this.prisma.materiel.update({
-    where: { idMateriel: id },
-    data: {
-      actif: true,
-    },
-    include: this.includeRelations,
-  });
-}
 }

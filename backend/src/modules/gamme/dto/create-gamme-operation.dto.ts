@@ -40,7 +40,4 @@ export class CreateGammeOperationDto {
   @IsInt()
   idModele?: number;
 
-  @IsOptional()
-  @IsInt()
-  idFamille?: number;
 }

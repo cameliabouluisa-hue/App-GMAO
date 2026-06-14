@@ -90,7 +90,7 @@ export class GammeService {
         point_structure: true,
         materiel: true,
         modele: true,
-        famille: true,
+        
       },
     });
   }
@@ -104,7 +104,7 @@ export class GammeService {
         point_structure: true,
         materiel: true,
         modele: true,
-        famille: true,
+        
       },
       orderBy: {
         ordre: 'asc',
@@ -126,7 +126,7 @@ export class GammeService {
         point_structure: true,
         materiel: true,
         modele: true,
-        famille: true,
+        
       },
     });
   }

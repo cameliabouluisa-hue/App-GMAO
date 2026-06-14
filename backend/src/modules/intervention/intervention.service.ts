@@ -1,33 +1,119 @@
 import {
-  ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '../../../generated/prisma/client';
+
+import { CreateOccupationInterventionDto } from './dto/create-occupation-intervention.dto';
+import { CreateInterventionDto } from './dto/create-intervention.dto';
 import { UpdateInterventionDto } from './dto/update-intervention.dto';
-import { AffecterTechnicienDto } from './dto/affecter-technicien.dto';
-import { RealiserInterventionDto } from './dto/realiser-intervention.dto';
-import { AffecterEquipeDto } from './dto/affecter-equipe.dto';
+import { UpsertCompteRenduInterventionDto } from './dto/upsert-compte-rendu-intervention.dto';
+
+import {
+  AffecterEquipeDto,
+  AffecterTechnicienDto,
+  ChangementEtatDto,
+  DemarrerInterventionDto,
+  RefuserTravauxDto,
+  ReporterInterventionDto,
+  TerminerInterventionDto,
+} from './dto/action-intervention.dto';
+
+import { INTERVENTION_ETATS } from './intervention.constants';
+
+type FindAllFilters = {
+  etat?: string;
+  typeMaintenance?: string;
+  idMateriel?: number;
+  idEquipe?: number;
+};
+
+const interventionInclude = {
+  materiel: true,
+  point_structure: true,
+  demande_intervention: true,
+  gamme: true,
+  equipe_maintenance: true,
+  plan_preventif: true,
+  plan_preventif_declencheur: true,
+
+  affectation_technicien: {
+    include: {
+      technicien: true,
+    },
+  },
+
+  operation_intervention: true,
+
+  consommations: {
+    include: {
+      article: true,
+    },
+  },
+
+  occupations: {
+    include: {
+      technicien: true,
+      operation: true,
+    },
+    orderBy: {
+      dateOccupation: 'desc',
+    },
+  },
+
+  sortieStocks: {
+    include: {
+      lignes: {
+        include: {
+          article: true,
+          magasin: true,
+          emplacement: true,
+          materiel: true,
+        },
+      },
+    },
+    orderBy: {
+      idSortieStock: 'desc',
+    },
+  },
+
+  compteRendu: true,
+
+  historiquesEtat: {
+    orderBy: {
+      changedAt: 'desc',
+    },
+  },
+} satisfies Prisma.interventionInclude;
 
 @Injectable()
 export class InterventionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(filters: FindAllFilters = {}) {
+    const where: Prisma.interventionWhereInput = {};
+
+    if (filters.etat) where.etat = filters.etat;
+    if (filters.typeMaintenance) where.typeMaintenance = filters.typeMaintenance;
+    if (filters.idMateriel) where.idMateriel = filters.idMateriel;
+    if (filters.idEquipe) where.idEquipe = filters.idEquipe;
+
     return this.prisma.intervention.findMany({
+      where,
+      include: interventionInclude,
       orderBy: {
         idIntervention: 'desc',
       },
-      include: this.defaultInclude(),
     });
   }
 
-  async findOne(id: number) {
+  async findOne(idIntervention: number) {
     const intervention = await this.prisma.intervention.findUnique({
-      where: {
-        idIntervention: id,
-      },
-      include: this.defaultInclude(),
+      where: { idIntervention },
+      include: interventionInclude,
     });
 
     if (!intervention) {
@@ -39,507 +125,1232 @@ export class InterventionService {
 
   async findByType(typeMaintenance: string) {
     return this.prisma.intervention.findMany({
-      where: {
-        typeMaintenance,
-      },
-      orderBy: {
-        idIntervention: 'desc',
-      },
-      include: this.defaultInclude(),
+      where: { typeMaintenance },
+      include: interventionInclude,
+      orderBy: { idIntervention: 'desc' },
     });
   }
 
   async findByEtat(etat: string) {
     return this.prisma.intervention.findMany({
-      where: {
-        etat,
-      },
-      orderBy: {
-        idIntervention: 'desc',
-      },
-      include: this.defaultInclude(),
+      where: { etat },
+      include: interventionInclude,
+      orderBy: { idIntervention: 'desc' },
     });
   }
 
-  async update(id: number, dto: UpdateInterventionDto) {
-    const intervention = await this.ensureInterventionExists(id);
-
-    if (intervention.etat === 'CLOTUREE') {
-      throw new ConflictException(
-        'Impossible de modifier une intervention clôturée.',
-      );
+  async create(dto: CreateInterventionDto) {
+    if (dto.idMateriel) {
+      await this.ensureMaterielExists(dto.idMateriel);
     }
 
-    if (intervention.etat === 'ANNULEE') {
-      throw new ConflictException(
-        'Impossible de modifier une intervention annulée.',
-      );
+    if (dto.idDemande) {
+      await this.ensureDemandeExists(dto.idDemande);
     }
 
-    await this.prisma.intervention.update({
-      where: {
-        idIntervention: id,
-      },
-      data: {
-        ...(dto.code !== undefined ? { code: dto.code } : {}),
-        ...(dto.typeMaintenance !== undefined
-          ? { typeMaintenance: dto.typeMaintenance }
-          : {}),
-        ...(dto.dateDebut !== undefined
-          ? { dateDebut: new Date(dto.dateDebut) }
-          : {}),
-        ...(dto.dateFin !== undefined
-          ? { dateFin: new Date(dto.dateFin) }
-          : {}),
-        ...(dto.etat !== undefined ? { etat: dto.etat } : {}),
-        ...(dto.idMateriel !== undefined ? { idMateriel: dto.idMateriel } : {}),
-        ...(dto.idDemande !== undefined ? { idDemande: dto.idDemande } : {}),
-        ...(dto.idGamme !== undefined ? { idGamme: dto.idGamme } : {}),
-      },
+    if (dto.idEquipe) {
+      await this.ensureEquipeExists(dto.idEquipe);
+    }
+
+    const code =
+      dto.code ?? (await this.generateInterventionCode(dto.typeMaintenance));
+
+    const data: Prisma.interventionCreateInput = {
+      code,
+      libelle: dto.libelle,
+      description: dto.description,
+      typeMaintenance: dto.typeMaintenance,
+      typeIntervention: dto.typeIntervention,
+      natureIntervention: dto.natureIntervention,
+      priorite: dto.priorite ?? 'NORMALE',
+      criticite: dto.criticite ?? 'MOYENNE',
+      centreCout: dto.centreCout,
+      etat: INTERVENTION_ETATS.EN_PREPARATION,
+      origineGeneration: dto.idDemande ? 'DI' : 'DIRECTE',
+
+      dateDebutPrevue: this.parseDate(dto.dateDebutPrevue),
+      dateFinPrevue: this.parseDate(dto.dateFinPrevue),
+      dateSouhaiteeFin: this.parseDate(dto.dateSouhaiteeFin),
+
+      dateFixe: dto.dateFixe ?? false,
+      aPlanifier: dto.aPlanifier ?? false,
+
+      materielEnPanne: dto.materielEnPanne ?? false,
+      materielIndisponible: dto.materielIndisponible ?? false,
+      arretMateriel: dto.arretMateriel ?? false,
+
+      receptionTravaux: dto.receptionTravaux ?? false,
+
+      symptome: dto.symptome,
+      cause: dto.cause,
+      remede: dto.remede,
+      diagnosticInitial: dto.diagnosticInitial,
+      instructions: dto.instructions,
+
+      chargePrevue: dto.chargePrevue,
+      tempsArretPrevu: dto.tempsArretPrevu,
+
+      createdBy: dto.createdBy,
+
+      materiel: dto.idMateriel
+        ? { connect: { idMateriel: dto.idMateriel } }
+        : undefined,
+
+      point_structure: dto.idPointStructure
+        ? { connect: { idPoint: dto.idPointStructure } }
+        : undefined,
+
+      demande_intervention: dto.idDemande
+        ? { connect: { idDemande: dto.idDemande } }
+        : undefined,
+
+      gamme: dto.idGamme ? { connect: { idGamme: dto.idGamme } } : undefined,
+
+      equipe_maintenance: dto.idEquipe
+        ? { connect: { idEquipe: dto.idEquipe } }
+        : undefined,
+
+      plan_preventif: dto.idPlanPreventif
+        ? { connect: { idPlanPreventif: dto.idPlanPreventif } }
+        : undefined,
+
+      plan_preventif_declencheur: dto.idPlanPreventifDeclencheur
+        ? {
+            connect: {
+              idPlanPreventifDeclencheur: dto.idPlanPreventifDeclencheur,
+            },
+          }
+        : undefined,
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      const intervention = await tx.intervention.create({
+        data,
+      });
+
+      await this.createHistoriqueEtatTx(tx, {
+        idIntervention: intervention.idIntervention,
+        ancienEtat: null,
+        nouvelEtat: INTERVENTION_ETATS.EN_PREPARATION,
+        action: 'CREATION',
+        commentaire: 'Création de l’intervention',
+        changedBy: dto.createdBy,
+      });
+
+      return tx.intervention.findUnique({
+        where: { idIntervention: intervention.idIntervention },
+        include: interventionInclude,
+      });
     });
+  }
 
-    return this.findOne(id);
+  async update(idIntervention: number, dto: UpdateInterventionDto) {
+    const intervention = await this.findOne(idIntervention);
+
+    this.ensureModifiable(intervention.etat);
+
+    if (dto.idMateriel) {
+      await this.ensureMaterielExists(dto.idMateriel);
+    }
+
+    if (dto.idDemande) {
+      await this.ensureDemandeExists(dto.idDemande);
+    }
+
+    if (dto.idEquipe) {
+      await this.ensureEquipeExists(dto.idEquipe);
+    }
+
+    return this.prisma.intervention.update({
+      where: { idIntervention },
+      data: {
+        code: dto.code,
+        libelle: dto.libelle,
+        description: dto.description,
+        typeMaintenance: dto.typeMaintenance,
+        typeIntervention: dto.typeIntervention,
+        natureIntervention: dto.natureIntervention,
+        priorite: dto.priorite,
+        criticite: dto.criticite,
+        centreCout: dto.centreCout,
+
+        idMateriel: dto.idMateriel,
+        idPointStructure: dto.idPointStructure,
+        idDemande: dto.idDemande,
+        idGamme: dto.idGamme,
+        idEquipe: dto.idEquipe,
+
+        dateDebutPrevue: this.parseDate(dto.dateDebutPrevue),
+        dateFinPrevue: this.parseDate(dto.dateFinPrevue),
+        dateDebutReelle: this.parseDate(dto.dateDebutReelle),
+        dateFinReelle: this.parseDate(dto.dateFinReelle),
+        dateSouhaiteeFin: this.parseDate(dto.dateSouhaiteeFin),
+
+        dateFixe: dto.dateFixe,
+        aPlanifier: dto.aPlanifier,
+
+        materielEnPanne: dto.materielEnPanne,
+        materielIndisponible: dto.materielIndisponible,
+        arretMateriel: dto.arretMateriel,
+        receptionTravaux: dto.receptionTravaux,
+
+        symptome: dto.symptome,
+        cause: dto.cause,
+        remede: dto.remede,
+        diagnosticInitial: dto.diagnosticInitial,
+        instructions: dto.instructions,
+
+        chargePrevue: dto.chargePrevue,
+        chargeRevisee: dto.chargeRevisee,
+        chargeReelle: dto.chargeReelle,
+        tempsArretPrevu: dto.tempsArretPrevu,
+        tempsArretReel: dto.tempsArretReel,
+      },
+      include: interventionInclude,
+    });
+  }
+
+  async delete(idIntervention: number) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (
+      intervention.etat !== INTERVENTION_ETATS.EN_PREPARATION &&
+      intervention.etat !== INTERVENTION_ETATS.ATTENTE_DEVIS
+    ) {
+      throw new BadRequestException(
+        'Suppression impossible. Seules les interventions en préparation ou en attente devis peuvent être supprimées.',
+      );
+    }
+
+    return this.prisma.intervention.delete({
+      where: { idIntervention },
+    });
   }
 
   async affecterEquipe(idIntervention: number, dto: AffecterEquipeDto) {
-    const intervention = await this.ensureInterventionExists(idIntervention);
+    const intervention = await this.findOne(idIntervention);
+    this.ensureModifiable(intervention.etat);
 
-    this.ensureTransitionAllowed(intervention.etat, 'AFFECTEE_EQUIPE');
+    await this.ensureEquipeExists(dto.idEquipe);
 
-    const equipe = await this.prisma.equipe_maintenance.findUnique({
-      where: {
-        idEquipe: dto.idEquipe,
-      },
-      select: {
-        idEquipe: true,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.intervention.update({
+        where: { idIntervention },
+        data: {
+          idEquipe: dto.idEquipe,
+          assignedBy: dto.assignedBy,
+          dateAffectation: new Date(),
+        },
+      });
 
-    if (!equipe) {
-      throw new NotFoundException('Equipe introuvable.');
-    }
-
-    await this.prisma.intervention.update({
-      where: {
+      await this.createHistoriqueEtatTx(tx, {
         idIntervention,
-      },
-      data: {
-        idEquipe: dto.idEquipe,
-        etat: 'AFFECTEE_EQUIPE',
-        assignedBy: dto.assignedBy ?? 'RESPONSABLE_MAINTENANCE',
-        dateAffectation: new Date(),
-      },
-    });
+        ancienEtat: intervention.etat,
+        nouvelEtat: intervention.etat ?? INTERVENTION_ETATS.EN_PREPARATION,
+        action: 'AFFECTATION_EQUIPE',
+        commentaire: `Affectation de l'équipe ${dto.idEquipe}`,
+        changedBy: dto.assignedBy,
+      });
 
-    return this.findOne(idIntervention);
+      return tx.intervention.findUnique({
+        where: { idIntervention: updated.idIntervention },
+        include: interventionInclude,
+      });
+    });
   }
 
-  async affecterTechnicien(idIntervention: number, dto: AffecterTechnicienDto) {
-    const intervention = await this.ensureInterventionExists(idIntervention);
+  async affecterTechnicien(
+    idIntervention: number,
+    dto: AffecterTechnicienDto,
+  ) {
+    const intervention = await this.findOne(idIntervention);
+    this.ensureModifiable(intervention.etat);
 
-    this.ensureTransitionAllowed(intervention.etat, 'AFFECTEE');
+    await this.ensureTechnicienExists(dto.idTechnicien);
 
-    const technicien = await this.prisma.technicien.findUnique({
-      where: {
-        idTechnicien: dto.idTechnicien,
-      },
-      select: {
-        idTechnicien: true,
-      },
-    });
-
-    if (!technicien) {
-      throw new NotFoundException('Technicien introuvable.');
-    }
-
-    const existing = await this.prisma.affectation_technicien.findFirst({
-      where: {
-        idIntervention,
-        idTechnicien: dto.idTechnicien,
-      },
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        'Ce technicien est déjà affecté à cette intervention.',
-      );
-    }
-
-    await this.prisma.affectation_technicien.create({
+    return this.prisma.affectation_technicien.create({
       data: {
         idIntervention,
         idTechnicien: dto.idTechnicien,
-        tempsTravail: dto.tempsTravail ?? null,
-        affectePar: dto.affectePar ?? 'RESPONSABLE_MAINTENANCE',
+        tempsTravail: dto.tempsTravail,
+        affectePar: dto.affectePar,
         dateAffectation: new Date(),
       },
-    });
-
-    await this.prisma.intervention.update({
-      where: {
-        idIntervention,
-      },
-      data: {
-        etat: 'AFFECTEE',
-        assignedBy: dto.affectePar ?? 'RESPONSABLE_MAINTENANCE',
-        dateAffectation: new Date(),
+      include: {
+        technicien: true,
+        intervention: true,
       },
     });
-
-    return this.findOne(idIntervention);
   }
 
   async retirerAffectation(idAffectation: number) {
     const affectation = await this.prisma.affectation_technicien.findUnique({
-      where: {
-        idAffectation,
-      },
-      select: {
-        idAffectation: true,
-        idIntervention: true,
-        intervention: {
-          select: {
-            etat: true,
-          },
-        },
-      },
+      where: { idAffectation },
     });
 
     if (!affectation) {
       throw new NotFoundException('Affectation introuvable.');
     }
 
-    if (affectation.intervention?.etat === 'CLOTUREE') {
-      throw new ConflictException(
-        'Impossible de retirer une affectation d’une intervention clôturée.',
+    return this.prisma.affectation_technicien.delete({
+      where: { idAffectation },
+    });
+  }
+
+  async getCompteRendu(idIntervention: number) {
+    await this.findOne(idIntervention);
+
+    const compteRendu =
+      await this.prisma.compte_rendu_intervention.findUnique({
+        where: { idIntervention },
+      });
+
+    if (!compteRendu) {
+      throw new NotFoundException(
+        'Aucun compte-rendu trouvé pour cette intervention.',
       );
     }
 
-    if (affectation.intervention?.etat === 'ANNULEE') {
-      throw new ConflictException(
-        'Impossible de retirer une affectation d’une intervention annulée.',
+    return compteRendu;
+  }
+
+  async upsertCompteRendu(
+    idIntervention: number,
+    dto: UpsertCompteRenduInterventionDto,
+  ) {
+    const intervention = await this.findOne(idIntervention);
+
+    this.ensureCompteRenduWritable(intervention.etat);
+
+    const dateCompteRendu =
+      this.parseDate(dto.dateCompteRendu) ?? new Date();
+
+    const tempsArret =
+      dto.tempsArret !== undefined
+        ? new Prisma.Decimal(dto.tempsArret)
+        : undefined;
+
+    const dureeReelle =
+      dto.dureeReelle !== undefined
+        ? new Prisma.Decimal(dto.dureeReelle)
+        : undefined;
+
+    return this.prisma.$transaction(async (tx) => {
+      const compteRendu =
+        await tx.compte_rendu_intervention.upsert({
+          where: { idIntervention },
+          create: {
+            idIntervention,
+            dateCompteRendu,
+            saisiPar: dto.saisiPar,
+            travauxEffectues: dto.travauxEffectues,
+            diagnostic: dto.diagnostic,
+            cause: dto.cause,
+            remede: dto.remede,
+            observation: dto.observation,
+            resultat: dto.resultat,
+            tempsArret,
+            dureeReelle,
+          },
+          update: {
+            dateCompteRendu,
+            saisiPar: dto.saisiPar,
+            travauxEffectues: dto.travauxEffectues,
+            diagnostic: dto.diagnostic,
+            cause: dto.cause,
+            remede: dto.remede,
+            observation: dto.observation,
+            resultat: dto.resultat,
+            tempsArret,
+            dureeReelle,
+          },
+        });
+
+      await tx.intervention.update({
+        where: { idIntervention },
+        data: {
+          cause: dto.cause,
+          remede: dto.remede,
+          diagnosticInitial: dto.diagnostic,
+          commentaireRealisation:
+            dto.travauxEffectues ?? dto.observation,
+          tempsArretReel: tempsArret,
+          dureeReelle,
+          chargeReelle: dureeReelle,
+          reportedBy: dto.saisiPar,
+        },
+      });
+
+      return compteRendu;
+    });
+  }
+
+  async demanderValidation(
+    idIntervention: number,
+    dto: ChangementEtatDto,
+  ) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ATTENTE_VALIDATION,
+      action: 'DEMANDE_VALIDATION',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [
+        INTERVENTION_ETATS.EN_PREPARATION,
+        INTERVENTION_ETATS.ATTENTE_DEVIS,
+      ],
+      data: {},
+    });
+  }
+
+  async valider(idIntervention: number, dto: ChangementEtatDto) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (
+      intervention.etat !== INTERVENTION_ETATS.ATTENTE_VALIDATION &&
+      intervention.etat !== INTERVENTION_ETATS.EN_PREPARATION
+    ) {
+      throw new BadRequestException(
+        'Cette intervention ne peut pas être validée depuis son état actuel.',
       );
     }
 
-    await this.prisma.affectation_technicien.delete({
-      where: {
-        idAffectation,
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ATTENTE_REALISATION,
+      action: 'VALIDATION',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [
+        INTERVENTION_ETATS.EN_PREPARATION,
+        INTERVENTION_ETATS.ATTENTE_VALIDATION,
+      ],
+      data: {
+        validatedBy: dto.utilisateur,
+        dateValidation: new Date(),
+
+        chargeRevisee: intervention.chargePrevue,
+        chargeReviseeMoyens: intervention.chargePrevueMoyens,
+
+        coutMainOeuvreRevise: intervention.coutMainOeuvrePrevu,
+        coutPiecesRevise: intervention.coutPiecesPrevu,
+        coutMoyensRevise: intervention.coutMoyensPrevu,
+        coutSousTraitanceRevise: intervention.coutSousTraitancePrevu,
+        coutTotalRevise: intervention.coutTotalPrevu,
       },
     });
-
-    return this.findOne(affectation.idIntervention!);
   }
 
-  async realiser(idIntervention: number, dto: RealiserInterventionDto) {
-    const intervention = await this.ensureInterventionExists(idIntervention);
-
-    this.ensureTransitionAllowed(intervention.etat, 'REALISEE');
-
-    await this.prisma.intervention.update({
-      where: {
-        idIntervention,
-      },
+  async demarrer(idIntervention: number, dto: DemarrerInterventionDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.EN_COURS,
+      action: 'DEMARRAGE',
+      changedBy: dto.startedBy,
+      commentaire: dto.commentaire,
+      allowedFrom: [
+        INTERVENTION_ETATS.ATTENTE_REALISATION,
+        INTERVENTION_ETATS.ATTENTE_FOURNITURE,
+      ],
       data: {
-        etat: 'REALISEE',
-        dateFin: dto.dateFin ? new Date(dto.dateFin) : new Date(),
+        startedBy: dto.startedBy,
+        dateDebutReelle: this.parseDate(dto.dateDebutReelle) ?? new Date(),
       },
     });
-
-    return this.findOne(idIntervention);
   }
 
-  async annuler(idIntervention: number) {
-    const intervention = await this.ensureInterventionExists(idIntervention);
+  async terminer(idIntervention: number, dto: TerminerInterventionDto) {
+    const intervention = await this.findOne(idIntervention);
 
-    this.ensureTransitionAllowed(intervention.etat, 'ANNULEE');
+    if (intervention.etat !== INTERVENTION_ETATS.EN_COURS) {
+      throw new BadRequestException(
+        'Une intervention doit être en cours pour être terminée.',
+      );
+    }
 
-    await this.prisma.intervention.update({
-      where: {
-        idIntervention,
-      },
+    const nouvelEtat = intervention.receptionTravaux
+      ? INTERVENTION_ETATS.TERMINE
+      : INTERVENTION_ETATS.SOLDE;
+
+    return this.changeEtat(idIntervention, {
+      nouvelEtat,
+      action: intervention.receptionTravaux ? 'TERMINER' : 'TERMINER_ET_SOLDER',
+      changedBy: dto.reportedBy,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.EN_COURS],
       data: {
-        etat: 'ANNULEE',
+        reportedBy: dto.reportedBy,
+        dateFinReelle: this.parseDate(dto.dateFinReelle) ?? new Date(),
+        dureeReelle: dto.dureeReelle,
+        tempsArretReel: dto.tempsArretReel,
+        chargeReelle: dto.dureeReelle,
+        dateCloture: !intervention.receptionTravaux ? new Date() : undefined,
+        closedBy: !intervention.receptionTravaux ? dto.reportedBy : undefined,
       },
     });
-
-    return this.findOne(idIntervention);
   }
 
-  async cloturer(idIntervention: number, closedBy?: string) {
-    const intervention = await this.ensureInterventionExists(idIntervention);
-
-    this.ensureTransitionAllowed(intervention.etat, 'CLOTUREE');
-
-    await this.prisma.intervention.update({
-      where: {
-        idIntervention,
-      },
+  async accepterTravaux(idIntervention: number, dto: ChangementEtatDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.SOLDE,
+      action: 'ACCEPTER_TRAVAUX',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.TERMINE],
       data: {
-        etat: 'CLOTUREE',
-        closedBy: closedBy ?? 'CHEF_EQUIPE',
+        receptionBy: dto.utilisateur,
+        dateReceptionTravaux: new Date(),
         dateCloture: new Date(),
+        closedBy: dto.utilisateur,
+      },
+    });
+  }
+
+  async refuserTravaux(idIntervention: number, dto: RefuserTravauxDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.EN_COURS,
+      action: 'REFUSER_TRAVAUX',
+      changedBy: dto.utilisateur,
+      commentaire: dto.motifRefusTravaux,
+      allowedFrom: [INTERVENTION_ETATS.TERMINE],
+      data: {
+        motifRefusTravaux: dto.motifRefusTravaux,
+      },
+    });
+  }
+
+  async solder(idIntervention: number, dto: ChangementEtatDto) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (
+      intervention.receptionTravaux &&
+      intervention.etat !== INTERVENTION_ETATS.TERMINE
+    ) {
+      throw new BadRequestException(
+        'Cette intervention nécessite une réception des travaux avant solde.',
+      );
+    }
+
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.SOLDE,
+      action: 'SOLDE',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [
+        INTERVENTION_ETATS.EN_COURS,
+        INTERVENTION_ETATS.TERMINE,
+      ],
+      data: {
+        dateCloture: new Date(),
+        closedBy: dto.utilisateur,
+      },
+    });
+  }
+
+  async annuler(idIntervention: number, dto: ChangementEtatDto) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (
+      intervention.etat === INTERVENTION_ETATS.EN_COURS ||
+      intervention.etat === INTERVENTION_ETATS.TERMINE ||
+      intervention.etat === INTERVENTION_ETATS.SOLDE ||
+      intervention.etat === INTERVENTION_ETATS.ARCHIVE ||
+      intervention.etat === INTERVENTION_ETATS.ANNULE
+    ) {
+      throw new BadRequestException('Annulation impossible depuis cet état.');
+    }
+
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ANNULE,
+      action: 'ANNULATION',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [
+        INTERVENTION_ETATS.EN_PREPARATION,
+        INTERVENTION_ETATS.ATTENTE_DEVIS,
+        INTERVENTION_ETATS.ATTENTE_VALIDATION,
+        INTERVENTION_ETATS.ATTENTE_FOURNITURE,
+        INTERVENTION_ETATS.ATTENTE_REALISATION,
+      ],
+      data: {
+        dateAnnulation: new Date(),
+        cancelledBy: dto.utilisateur,
+        motifAnnulation: dto.commentaire,
+      },
+    });
+  }
+
+  async archiver(idIntervention: number, dto: ChangementEtatDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ARCHIVE,
+      action: 'ARCHIVAGE',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.SOLDE],
+      data: {
+        dateArchivage: new Date(),
+        archivedBy: dto.utilisateur,
+      },
+    });
+  }
+
+  async reporter(idIntervention: number, dto: ReporterInterventionDto) {
+    const intervention = await this.findOne(idIntervention);
+    this.ensureModifiable(intervention.etat);
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.intervention.update({
+        where: { idIntervention },
+        data: {
+          dateDebutPrevue: this.parseDate(dto.nouvelleDateDebut),
+          dateFinPrevue: this.parseDate(dto.nouvelleDateFin),
+          dateReport: new Date(),
+          motifReport: dto.motifReport,
+          reportedBy: dto.reportedBy,
+        },
+      });
+
+      await this.createHistoriqueEtatTx(tx, {
+        idIntervention,
+        ancienEtat: intervention.etat,
+        nouvelEtat: intervention.etat ?? INTERVENTION_ETATS.EN_PREPARATION,
+        action: 'REPORT',
+        commentaire: dto.motifReport,
+        changedBy: dto.reportedBy,
+      });
+
+      return tx.intervention.findUnique({
+        where: { idIntervention: updated.idIntervention },
+        include: interventionInclude,
+      });
+    });
+  }
+
+  async getOccupations(idIntervention: number) {
+    await this.findOne(idIntervention);
+
+    return this.prisma.occupation_intervention.findMany({
+      where: {
+        idIntervention,
+      },
+      include: {
+        technicien: true,
+        operation: true,
+      },
+      orderBy: {
+        dateOccupation: 'desc',
+      },
+    });
+  }
+
+  async createOccupation(
+    idIntervention: number,
+    dto: CreateOccupationInterventionDto,
+  ) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (intervention.etat !== INTERVENTION_ETATS.EN_COURS) {
+      throw new BadRequestException(
+        'Une occupation ne peut être saisie que sur une intervention en cours.',
+      );
+    }
+
+    if (dto.idTechnicien) {
+      await this.ensureTechnicienExists(dto.idTechnicien);
+    }
+
+    if (dto.idOperation) {
+      const operation = await this.prisma.operation_intervention.findUnique({
+        where: { idOperation: dto.idOperation },
+      });
+
+      if (!operation) {
+        throw new NotFoundException("Opération d'intervention introuvable.");
+      }
+
+      if (operation.idIntervention !== idIntervention) {
+        throw new BadRequestException(
+          "Cette opération n'appartient pas à cette intervention.",
+        );
+      }
+    }
+
+    const dateOccupation = this.parseDate(dto.dateOccupation);
+
+    if (!dateOccupation) {
+      throw new BadRequestException('La date occupation est obligatoire.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const occupation = await tx.occupation_intervention.create({
+        data: {
+          idIntervention,
+          idTechnicien: dto.idTechnicien,
+          idOperation: dto.idOperation,
+          dateOccupation,
+          duree: new Prisma.Decimal(dto.duree),
+          natureOccupation: dto.natureOccupation,
+          typeHoraire: dto.typeHoraire,
+          commentaire: dto.commentaire,
+          createdBy: dto.createdBy,
+        },
+        include: {
+          technicien: true,
+          operation: true,
+        },
+      });
+
+      await this.recalculateOccupationTotalsTx(tx, idIntervention);
+
+      return occupation;
+    });
+  }
+
+  async deleteOccupation(idIntervention: number, idOccupation: number) {
+    const intervention = await this.findOne(idIntervention);
+
+    if (intervention.etat !== INTERVENTION_ETATS.EN_COURS) {
+      throw new BadRequestException(
+        'Une occupation ne peut être supprimée que sur une intervention en cours.',
+      );
+    }
+
+    const occupation = await this.prisma.occupation_intervention.findUnique({
+      where: {
+        idOccupation,
       },
     });
 
-    return this.findOne(idIntervention);
+    if (!occupation) {
+      throw new NotFoundException('Occupation introuvable.');
+    }
+
+    if (occupation.idIntervention !== idIntervention) {
+      throw new BadRequestException(
+        'Cette occupation n’appartient pas à cette intervention.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.occupation_intervention.delete({
+        where: {
+          idOccupation,
+        },
+      });
+
+      await this.recalculateOccupationTotalsTx(tx, idIntervention);
+
+      return tx.intervention.findUnique({
+        where: {
+          idIntervention,
+        },
+        include: interventionInclude,
+      });
+    });
   }
+
+  
+
+ 
+
+  
 
   async dashboardResponsable() {
+    const today = new Date();
+
     const [
       total,
-      aPlanifier,
-      affectees,
-      realisees,
-      cloturees,
+      enPreparation,
+      attenteValidation,
+      attenteRealisation,
+      enCours,
+      terminees,
+      soldees,
       annulees,
-      preventives,
-      correctives,
-      interventions,
+      enRetard,
     ] = await Promise.all([
       this.prisma.intervention.count(),
       this.prisma.intervention.count({
-        where: { etat: 'A_PLANIFIER' },
+        where: { etat: INTERVENTION_ETATS.EN_PREPARATION },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.ATTENTE_VALIDATION },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.ATTENTE_REALISATION },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.EN_COURS },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.TERMINE },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.SOLDE },
+      }),
+      this.prisma.intervention.count({
+        where: { etat: INTERVENTION_ETATS.ANNULE },
       }),
       this.prisma.intervention.count({
         where: {
+          dateFinPrevue: { lt: today },
           etat: {
-            in: ['AFFECTEE', 'AFFECTEE_EQUIPE'],
+            notIn: [
+              INTERVENTION_ETATS.SOLDE,
+              INTERVENTION_ETATS.ANNULE,
+              INTERVENTION_ETATS.ARCHIVE,
+            ],
           },
         },
-      }),
-      this.prisma.intervention.count({
-        where: { etat: 'REALISEE' },
-      }),
-      this.prisma.intervention.count({
-        where: { etat: 'CLOTUREE' },
-      }),
-      this.prisma.intervention.count({
-        where: { etat: 'ANNULEE' },
-      }),
-      this.prisma.intervention.count({
-        where: { typeMaintenance: 'PREVENTIF' },
-      }),
-      this.prisma.intervention.count({
-        where: { typeMaintenance: 'CORRECTIF' },
-      }),
-      this.prisma.intervention.findMany({
-        orderBy: { idIntervention: 'desc' },
-        include: this.defaultInclude(),
       }),
     ]);
 
     return {
-      stats: {
-        total,
-        aPlanifier,
-        affectees,
-        realisees,
-        cloturees,
-        annulees,
-        preventives,
-        correctives,
-      },
-      interventions,
+      total,
+      enPreparation,
+      attenteValidation,
+      attenteRealisation,
+      enCours,
+      terminees,
+      soldees,
+      annulees,
+      enRetard,
     };
   }
 
   async dashboardEquipe(idEquipe: number) {
     await this.ensureEquipeExists(idEquipe);
 
-    return this.prisma.intervention.findMany({
-      where: {
-        OR: [
-          {
-            idEquipe,
-          },
-          {
-            affectation_technicien: {
-              some: {
-                technicien: {
-                  idEquipe,
-                },
-              },
-            },
-          },
-        ],
-      },
-      orderBy: {
-        idIntervention: 'desc',
-      },
-      include: this.defaultInclude(),
-    });
+    const [total, enCours, attenteRealisation, terminees] = await Promise.all([
+      this.prisma.intervention.count({ where: { idEquipe } }),
+      this.prisma.intervention.count({
+        where: { idEquipe, etat: INTERVENTION_ETATS.EN_COURS },
+      }),
+      this.prisma.intervention.count({
+        where: { idEquipe, etat: INTERVENTION_ETATS.ATTENTE_REALISATION },
+      }),
+      this.prisma.intervention.count({
+        where: { idEquipe, etat: INTERVENTION_ETATS.TERMINE },
+      }),
+    ]);
+
+    return {
+      idEquipe,
+      total,
+      enCours,
+      attenteRealisation,
+      terminees,
+    };
+  }
+
+  async dashboardChefEquipe(idEquipe: number) {
+    return this.dashboardEquipe(idEquipe);
   }
 
   async dashboardTechnicien(idTechnicien: number) {
     await this.ensureTechnicienExists(idTechnicien);
 
-    const technicien = await this.prisma.technicien.findUnique({
-      where: {
-        idTechnicien,
-      },
-      select: {
-        idEquipe: true,
-      },
-    });
-
-    return this.prisma.intervention.findMany({
-      where: {
-        OR: [
-          {
-            affectation_technicien: {
-              some: {
-                idTechnicien,
-              },
-            },
-          },
-          {
-            idEquipe: technicien?.idEquipe ?? -1,
-          },
-        ],
+    const affectations = await this.prisma.affectation_technicien.findMany({
+      where: { idTechnicien },
+      include: {
+        intervention: true,
       },
       orderBy: {
-        idIntervention: 'desc',
+        idAffectation: 'desc',
       },
-      include: this.defaultInclude(),
     });
+
+    const total = affectations.length;
+    const enCours = affectations.filter(
+      (a) => a.intervention?.etat === INTERVENTION_ETATS.EN_COURS,
+    ).length;
+    const attenteRealisation = affectations.filter(
+      (a) => a.intervention?.etat === INTERVENTION_ETATS.ATTENTE_REALISATION,
+    ).length;
+    const soldees = affectations.filter(
+      (a) => a.intervention?.etat === INTERVENTION_ETATS.SOLDE,
+    ).length;
+
+    return {
+      idTechnicien,
+      total,
+      enCours,
+      attenteRealisation,
+      soldees,
+      affectations,
+    };
   }
 
-  async dashboardChefEquipe(idEquipe: number) {
-    await this.ensureEquipeExists(idEquipe);
+  private async changeEtat(
+    idIntervention: number,
+    params: {
+      nouvelEtat: string;
+      action: string;
+      changedBy?: string;
+      commentaire?: string;
+      allowedFrom: string[];
+      data: Prisma.interventionUpdateInput;
+    },
+  ) {
+    const intervention = await this.findOne(idIntervention);
+    const ancienEtat = intervention.etat;
 
-    return this.prisma.intervention.findMany({
-      where: {
-        OR: [
-          {
-            idEquipe,
-          },
-          {
-            affectation_technicien: {
-              some: {
-                technicien: {
-                  idEquipe,
-                },
-              },
-            },
-          },
-        ],
-        etat: {
-          in: ['AFFECTEE', 'AFFECTEE_EQUIPE', 'REALISEE', 'CLOTUREE'],
+    if (!ancienEtat || !params.allowedFrom.includes(ancienEtat)) {
+      throw new BadRequestException(
+        `Transition impossible : ${ancienEtat} → ${params.nouvelEtat}`,
+      );
+    }
+
+    if (
+      ancienEtat === INTERVENTION_ETATS.ANNULE ||
+      ancienEtat === INTERVENTION_ETATS.ARCHIVE
+    ) {
+      throw new BadRequestException(
+        'Une intervention annulée ou archivée ne peut plus changer d’état.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.intervention.update({
+        where: { idIntervention },
+        data: {
+          ...params.data,
+          etat: params.nouvelEtat,
         },
-      },
-      orderBy: {
-        idIntervention: 'desc',
-      },
-      include: this.defaultInclude(),
+      });
+
+      await this.createHistoriqueEtatTx(tx, {
+        idIntervention,
+        ancienEtat,
+        nouvelEtat: params.nouvelEtat,
+        action: params.action,
+        commentaire: params.commentaire,
+        changedBy: params.changedBy,
+      });
+
+      if (
+        params.nouvelEtat === INTERVENTION_ETATS.SOLDE &&
+        updated.idDemande
+      ) {
+        await this.synchroniserDemandeDepuisInterventionSoldeeTx(tx, {
+          idDemande: updated.idDemande,
+          changedBy: params.changedBy,
+          commentaire: params.commentaire ?? 'Intervention liée soldée.',
+        });
+      }
+
+      return tx.intervention.findUnique({
+        where: { idIntervention: updated.idIntervention },
+        include: interventionInclude,
+      });
     });
   }
 
-  private async ensureInterventionExists(idIntervention: number) {
-    const intervention = await this.prisma.intervention.findUnique({
+  private async synchroniserDemandeDepuisInterventionSoldeeTx(
+    tx: Prisma.TransactionClient,
+    data: {
+      idDemande: number;
+      changedBy?: string;
+      commentaire?: string;
+    },
+  ) {
+    const demande = await tx.demande_intervention.findUnique({
+      where: { idDemande: data.idDemande },
+    });
+
+    if (!demande) return;
+
+    if (
+      demande.statut === 'SOLDE' ||
+      demande.statut === 'REFUSE' ||
+      demande.statut === 'ANNULE'
+    ) {
+      return;
+    }
+
+    const nouveauStatut = demande.receptionTravaux ? 'TERMINE' : 'SOLDE';
+
+    await tx.demande_intervention.update({
+      where: { idDemande: data.idDemande },
+      data: {
+        statut: nouveauStatut,
+        dateReceptionTravaux:
+          nouveauStatut === 'SOLDE' ? new Date() : undefined,
+        receptionBy:
+          nouveauStatut === 'SOLDE' ? data.changedBy : undefined,
+      },
+    });
+
+    await tx.historique_etat_demande_intervention.create({
+      data: {
+        idDemande: data.idDemande,
+        ancienStatut: demande.statut,
+        nouveauStatut,
+        action:
+          nouveauStatut === 'TERMINE'
+            ? 'INTERVENTION_TERMINEE'
+            : 'INTERVENTION_SOLDEE',
+        commentaire: data.commentaire,
+        changedBy: data.changedBy,
+        changedAt: new Date(),
+      },
+    });
+  }
+
+  private async recalculateOccupationTotalsTx(
+    tx: Prisma.TransactionClient,
+    idIntervention: number,
+  ) {
+    const result = await tx.occupation_intervention.aggregate({
       where: {
         idIntervention,
       },
-      select: {
-        idIntervention: true,
-        etat: true,
+      _sum: {
+        duree: true,
       },
     });
 
-    if (!intervention) {
-      throw new NotFoundException('Intervention introuvable.');
-    }
+    const totalDuree = result._sum.duree ?? new Prisma.Decimal(0);
 
-    return intervention;
+    await tx.intervention.update({
+      where: {
+        idIntervention,
+      },
+      data: {
+        chargeReelle: totalDuree,
+        dureeReelle: totalDuree,
+      },
+    });
   }
 
-  private ensureTransitionAllowed(currentEtat: string | null, nextEtat: string) {
-    const current = currentEtat ?? 'A_PLANIFIER';
+  private async recalculateConsommationTotalsTx(
+    tx: Prisma.TransactionClient,
+    idIntervention: number,
+  ) {
+    const result = await tx.consommation.aggregate({
+      where: {
+        idIntervention,
+      },
+      _sum: {
+        coutTotal: true,
+      },
+    });
 
-    const transitions: Record<string, string[]> = {
-      A_PLANIFIER: ['AFFECTEE', 'AFFECTEE_EQUIPE', 'ANNULEE'],
-      AFFECTEE: ['REALISEE', 'ANNULEE'],
-      AFFECTEE_EQUIPE: ['AFFECTEE', 'REALISEE', 'ANNULEE'],
-      REALISEE: ['CLOTUREE'],
-      CLOTUREE: [],
-      ANNULEE: [],
-    };
+    const coutPiecesReel =
+      result._sum.coutTotal ?? new Prisma.Decimal(0);
 
-    const allowedNextStates = transitions[current] ?? [];
+    const intervention = await tx.intervention.findUnique({
+      where: {
+        idIntervention,
+      },
+    });
 
-    if (!allowedNextStates.includes(nextEtat)) {
-      throw new ConflictException(
-        `Transition d’état impossible : ${current} → ${nextEtat}`,
+    const coutMainOeuvreReel = this.decimalOrZero(
+      intervention?.coutMainOeuvreReel,
+    );
+
+    const coutMoyensReel = this.decimalOrZero(
+      intervention?.coutMoyensReel,
+    );
+
+    const coutSousTraitanceReel = this.decimalOrZero(
+      intervention?.coutSousTraitanceReel,
+    );
+
+    const coutTotalReel = coutPiecesReel
+      .plus(coutMainOeuvreReel)
+      .plus(coutMoyensReel)
+      .plus(coutSousTraitanceReel);
+
+    await tx.intervention.update({
+      where: {
+        idIntervention,
+      },
+      data: {
+        coutPiecesReel,
+        coutTotalReel,
+      },
+    });
+  }
+
+  private resolvePrixUnitaireConsommation(
+    prixDto: number | undefined,
+    article: {
+      prixUnitaire?: Prisma.Decimal | null;
+      prixStandard?: Prisma.Decimal | null;
+      prixMoyenPondere?: Prisma.Decimal | null;
+    },
+  ) {
+    if (prixDto !== undefined) {
+      return new Prisma.Decimal(prixDto);
+    }
+
+    if (
+      article.prixMoyenPondere !== null &&
+      article.prixMoyenPondere !== undefined
+    ) {
+      return new Prisma.Decimal(article.prixMoyenPondere);
+    }
+
+    if (article.prixStandard !== null && article.prixStandard !== undefined) {
+      return new Prisma.Decimal(article.prixStandard);
+    }
+
+    if (article.prixUnitaire !== null && article.prixUnitaire !== undefined) {
+      return new Prisma.Decimal(article.prixUnitaire);
+    }
+
+    return new Prisma.Decimal(0);
+  }
+
+  private async generateSortieStockNumeroTx(tx: Prisma.TransactionClient) {
+    const count = await tx.sortie_stock.count();
+
+    let index = count + 1;
+
+    while (true) {
+      const numero = `SOR-MNT-${String(index).padStart(6, '0')}`;
+
+      const exists = await tx.sortie_stock.findUnique({
+        where: {
+          numero,
+        },
+      });
+
+      if (!exists) return numero;
+
+      index++;
+    }
+  }
+
+  private decimalOrZero(
+    value?: Prisma.Decimal | number | string | null,
+  ) {
+    if (value === null || value === undefined) {
+      return new Prisma.Decimal(0);
+    }
+
+    return new Prisma.Decimal(value);
+  }
+
+  private async createHistoriqueEtatTx(
+    tx: Prisma.TransactionClient,
+    data: {
+      idIntervention: number;
+      ancienEtat?: string | null;
+      nouvelEtat: string;
+      action?: string;
+      commentaire?: string;
+      changedBy?: string;
+    },
+  ) {
+    return tx.historique_etat_intervention.create({
+      data: {
+        idIntervention: data.idIntervention,
+        ancienEtat: data.ancienEtat,
+        nouvelEtat: data.nouvelEtat,
+        action: data.action,
+        commentaire: data.commentaire,
+        changedBy: data.changedBy,
+        changedAt: new Date(),
+      },
+    });
+  }
+
+  private parseDate(value?: string): Date | undefined {
+    if (!value) return undefined;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`Date invalide : ${value}`);
+    }
+
+    return date;
+  }
+
+  private ensureModifiable(etat?: string | null) {
+    if (
+      etat === INTERVENTION_ETATS.SOLDE ||
+      etat === INTERVENTION_ETATS.ANNULE ||
+      etat === INTERVENTION_ETATS.ARCHIVE
+    ) {
+      throw new BadRequestException(
+        'Cette intervention est soldée, annulée ou archivée. Modification impossible.',
       );
+    }
+  }
+
+  private ensureCompteRenduWritable(etat?: string | null) {
+    if (
+      etat !== INTERVENTION_ETATS.EN_COURS &&
+      etat !== INTERVENTION_ETATS.TERMINE
+    ) {
+      throw new BadRequestException(
+        'Le compte-rendu ne peut être saisi que sur une intervention en cours ou terminée.',
+      );
+    }
+  }
+
+  private async ensureMaterielExists(idMateriel: number) {
+    const materiel = await this.prisma.materiel.findUnique({
+      where: { idMateriel },
+    });
+
+    if (!materiel) {
+      throw new NotFoundException('Matériel introuvable.');
+    }
+  }
+
+  private async ensureDemandeExists(idDemande: number) {
+    const demande = await this.prisma.demande_intervention.findUnique({
+      where: { idDemande },
+    });
+
+    if (!demande) {
+      throw new NotFoundException('Demande d’intervention introuvable.');
+    }
+  }
+
+  private async ensureEquipeExists(idEquipe: number) {
+    const equipe = await this.prisma.equipe_maintenance.findUnique({
+      where: { idEquipe },
+    });
+
+    if (!equipe) {
+      throw new NotFoundException('Équipe de maintenance introuvable.');
     }
   }
 
   private async ensureTechnicienExists(idTechnicien: number) {
     const technicien = await this.prisma.technicien.findUnique({
-      where: {
-        idTechnicien,
-      },
-      select: {
-        idTechnicien: true,
-      },
+      where: { idTechnicien },
     });
 
     if (!technicien) {
       throw new NotFoundException('Technicien introuvable.');
     }
-
-    return technicien;
   }
 
-  private async ensureEquipeExists(idEquipe: number) {
-    const equipe = await this.prisma.equipe_maintenance.findUnique({
-      where: {
-        idEquipe,
-      },
-      select: {
-        idEquipe: true,
-      },
-    });
+  private async generateInterventionCode(typeMaintenance?: string) {
+    const prefix =
+      typeMaintenance?.toUpperCase() === 'PREVENTIF'
+        ? 'OT-PREV'
+        : typeMaintenance?.toUpperCase() === 'CORRECTIF'
+          ? 'OT-COR'
+          : 'OT';
 
-    if (!equipe) {
-      throw new NotFoundException('Equipe introuvable.');
+    const count = await this.prisma.intervention.count();
+
+    let index = count + 1;
+
+    while (true) {
+      const code = `${prefix}-${String(index).padStart(6, '0')}`;
+
+      const exists = await this.prisma.intervention.findFirst({
+        where: { code },
+      });
+
+      if (!exists) return code;
+
+      index++;
     }
-
-    return equipe;
-  }
-
-  private defaultInclude() {
-    return {
-      materiel: {
-        include: {
-          modele: true,
-          etat_materiel: true,
-          type_materiel: true,
-        },
-      },
-      demande_intervention: true,
-      gamme: {
-        include: {
-          gamme_operation: {
-            orderBy: {
-              ordre: 'asc' as const,
-            },
-          },
-        },
-      },
-      operation_intervention: {
-        orderBy: {
-          ordre: 'asc' as const,
-        },
-      },
-      affectation_technicien: {
-        include: {
-          technicien: true,
-        },
-      },
-      equipe_maintenance: true,
-      plan_preventif: true,
-      plan_preventif_declencheur: true,
-      historique_declenchement_preventif: true,
-    };
   }
 }

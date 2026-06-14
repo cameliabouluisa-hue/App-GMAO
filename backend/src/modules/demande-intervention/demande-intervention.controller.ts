@@ -7,26 +7,35 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
+
 import { DemandeInterventionService } from './demande-intervention.service';
+
 import { CreateDemandeInterventionDto } from './dto/create-demande-intervention.dto';
 import { UpdateDemandeInterventionDto } from './dto/update-demande-intervention.dto';
-import { ValiderDemandeInterventionDto } from './dto/valider-demande-intervention.dto';
-import { RefuserDemandeInterventionDto } from './dto/refuser-demande-intervention.dto';
-import { GenerateOtCorrectiveDto } from './dto/generate-ot-corrective.dto';
+
+import {
+  ActionDemandeInterventionDto,
+  RefuserDemandeInterventionDto,
+  RefuserTravauxDemandeDto,
+} from './dto/action-demande-intervention.dto';
 
 @Controller('demandes-intervention')
 export class DemandeInterventionController {
   constructor(private readonly service: DemandeInterventionService) {}
 
-  @Get('dashboard/responsable')
-  dashboardResponsable() {
-    return this.service.dashboardResponsable();
-  }
-
-  @Get('statut/:statut')
-  findByStatut(@Param('statut') statut: string) {
-    return this.service.findByStatut(statut);
+  @Get()
+  findAll(
+    @Query('statut') statut?: string,
+    @Query('idMateriel') idMateriel?: string,
+    @Query('priorite') priorite?: string,
+  ) {
+    return this.service.findAll({
+      statut,
+      priorite,
+      idMateriel: idMateriel ? Number(idMateriel) : undefined,
+    });
   }
 
   @Post()
@@ -34,50 +43,61 @@ export class DemandeInterventionController {
     return this.service.create(dto);
   }
 
-  @Get()
-  findAll() {
-    return this.service.findAll();
+  @Post(':id/soumettre')
+  soumettre(
+    @Param('id', ParseIntPipe) idDemande: number,
+    @Body() dto: ActionDemandeInterventionDto,
+  ) {
+    return this.service.soumettre(idDemande, dto);
+  }
+
+  @Post(':id/accepter')
+  accepter(
+    @Param('id', ParseIntPipe) idDemande: number,
+    @Body() dto: ActionDemandeInterventionDto,
+  ) {
+    return this.service.accepter(idDemande, dto);
+  }
+
+  @Post(':id/refuser')
+  refuser(
+    @Param('id', ParseIntPipe) idDemande: number,
+    @Body() dto: RefuserDemandeInterventionDto,
+  ) {
+    return this.service.refuser(idDemande, dto);
+  }
+
+  @Post(':id/accepter-travaux')
+  accepterTravaux(
+    @Param('id', ParseIntPipe) idDemande: number,
+    @Body() dto: ActionDemandeInterventionDto,
+  ) {
+    return this.service.accepterTravaux(idDemande, dto);
+  }
+
+  @Post(':id/refuser-travaux')
+  refuserTravaux(
+    @Param('id', ParseIntPipe) idDemande: number,
+    @Body() dto: RefuserTravauxDemandeDto,
+  ) {
+    return this.service.refuserTravaux(idDemande, dto);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.service.findOne(id);
+  findOne(@Param('id', ParseIntPipe) idDemande: number) {
+    return this.service.findOne(idDemande);
   }
 
   @Patch(':id')
   update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIntPipe) idDemande: number,
     @Body() dto: UpdateDemandeInterventionDto,
   ) {
-    return this.service.update(id, dto);
+    return this.service.update(idDemande, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id);
-  }
-
-  @Patch(':id/valider')
-  valider(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ValiderDemandeInterventionDto,
-  ) {
-    return this.service.valider(id, dto);
-  }
-
-  @Patch(':id/refuser')
-  refuser(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: RefuserDemandeInterventionDto,
-  ) {
-    return this.service.refuser(id, dto);
-  }
-
-  @Post(':id/generate-ot-corrective')
-  generateOtCorrective(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: GenerateOtCorrectiveDto,
-  ) {
-    return this.service.generateOtCorrective(id, dto);
+  delete(@Param('id', ParseIntPipe) idDemande: number) {
+    return this.service.delete(idDemande);
   }
 }

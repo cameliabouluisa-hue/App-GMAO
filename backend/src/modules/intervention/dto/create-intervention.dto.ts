@@ -8,7 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export class UpdateInterventionDto {
+export class CreateInterventionDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
@@ -23,10 +23,9 @@ export class UpdateInterventionDto {
   @IsString()
   description?: string;
 
-  @IsOptional()
   @IsString()
   @MaxLength(50)
-  typeMaintenance?: string;
+  typeMaintenance!: string;
 
   @IsOptional()
   @IsString()
@@ -53,25 +52,6 @@ export class UpdateInterventionDto {
   @MaxLength(50)
   centreCout?: string;
 
-  /**
-   * Champs legacy utilisés encore dans ton service actuel
-   */
-  @IsOptional()
-  @IsDateString()
-  dateDebut?: string;
-
-  @IsOptional()
-  @IsDateString()
-  dateFin?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  etat?: string;
-
-  /**
-   * Liens
-   */
   @IsOptional()
   @IsInt()
   idMateriel?: number;
@@ -92,9 +72,14 @@ export class UpdateInterventionDto {
   @IsInt()
   idEquipe?: number;
 
-  /**
-   * Dates prévues / réelles
-   */
+  @IsOptional()
+  @IsInt()
+  idPlanPreventif?: number;
+
+  @IsOptional()
+  @IsInt()
+  idPlanPreventifDeclencheur?: number;
+
   @IsOptional()
   @IsDateString()
   dateDebutPrevue?: string;
@@ -102,14 +87,6 @@ export class UpdateInterventionDto {
   @IsOptional()
   @IsDateString()
   dateFinPrevue?: string;
-
-  @IsOptional()
-  @IsDateString()
-  dateDebutReelle?: string;
-
-  @IsOptional()
-  @IsDateString()
-  dateFinReelle?: string;
 
   @IsOptional()
   @IsDateString()
@@ -123,9 +100,6 @@ export class UpdateInterventionDto {
   @IsBoolean()
   aPlanifier?: boolean;
 
-  /**
-   * État matériel
-   */
   @IsOptional()
   @IsBoolean()
   materielEnPanne?: boolean;
@@ -140,18 +114,8 @@ export class UpdateInterventionDto {
 
   @IsOptional()
   @IsBoolean()
-  arretProduction?: boolean;
-
-  /**
-   * Réception travaux
-   */
-  @IsOptional()
-  @IsBoolean()
   receptionTravaux?: boolean;
 
-  /**
-   * Diagnostic
-   */
   @IsOptional()
   @IsString()
   @MaxLength(150)
@@ -175,26 +139,15 @@ export class UpdateInterventionDto {
   @IsString()
   instructions?: string;
 
-  /**
-   * Charges / durées
-   */
   @IsOptional()
   @IsNumber()
   chargePrevue?: number;
 
   @IsOptional()
   @IsNumber()
-  chargeRevisee?: number;
-
-  @IsOptional()
-  @IsNumber()
-  chargeReelle?: number;
-
-  @IsOptional()
-  @IsNumber()
   tempsArretPrevu?: number;
 
   @IsOptional()
-  @IsNumber()
-  tempsArretReel?: number;
+  @IsString()
+  createdBy?: string;
 }
