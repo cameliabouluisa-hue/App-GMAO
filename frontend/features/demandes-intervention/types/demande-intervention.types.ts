@@ -37,9 +37,12 @@ export type InterventionLite = {
 
 export type HistoriqueEtatDemandeIntervention = {
   idHistorique?: number;
+  idHistoriqueEtat?: number;
   idHistoriqueEtatDemande?: number;
   ancienEtat?: string | null;
   nouvelEtat?: string | null;
+  ancienStatut?: string | null;
+  nouveauStatut?: string | null;
   action?: string | null;
   commentaire?: string | null;
   changedBy?: string | null;

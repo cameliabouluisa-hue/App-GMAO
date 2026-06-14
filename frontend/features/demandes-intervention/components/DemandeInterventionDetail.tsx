@@ -278,6 +278,7 @@ export function DemandeInterventionDetail({
                 <div
                   key={
                     historique.idHistorique ||
+                    historique.idHistoriqueEtat ||
                     historique.idHistoriqueEtatDemande ||
                     index
                   }
@@ -290,8 +291,13 @@ export function DemandeInterventionDetail({
                       </p>
 
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {historique.ancienEtat || '—'} →{' '}
-                        {historique.nouvelEtat || '—'}
+                        {formatStatut(
+                          historique.ancienStatut || historique.ancienEtat,
+                        )}{' '}
+                        →{' '}
+                        {formatStatut(
+                          historique.nouveauStatut || historique.nouvelEtat,
+                        )}
                       </p>
 
                       {historique.commentaire && (
@@ -412,7 +418,7 @@ function WorkflowActions({
   </>
 )}
 
-{statut === 'ATTENTE_REALISATION' && (
+{statut === 'TERMINE' && (
   <>
     <button
       type="button"
@@ -436,10 +442,10 @@ function WorkflowActions({
   </>
 )}
 
-{statut === 'TERMINE' && (
-  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 text-sm font-black text-emerald-700">
-    <CheckCircle2 size={18} />
-    Demande terminée
+{statut === 'ATTENTE_REALISATION' && (
+  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-5 text-sm font-black text-blue-700">
+    <Clock3 size={18} />
+    En attente de réalisation
   </div>
 )}
 
@@ -481,18 +487,17 @@ function StatutBadge({
       ? 'bg-white/15 text-white'
       : statut === 'EN_PREPARATION'
         ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-        : statut === 'SOUMISE'
+        : statut === 'ATTENTE_PRISE_EN_COMPTE'
           ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-          : statut === 'ACCEPTEE' ||
-              statut === 'VALIDEE' ||
-              statut === 'TRANSFORMEE' ||
-              statut === 'TRAVAUX_ACCEPTES'
+          : statut === 'ATTENTE_REALISATION'
+            ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
+            : statut === 'TERMINE' || statut === 'SOLDE'
             ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-            : statut === 'REFUSEE' ||
-                statut === 'ANNULEE' ||
-                statut === 'TRAVAUX_REFUSES'
+            : statut === 'REFUSE'
               ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
-              : 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
+              : statut === 'ANNULE'
+                ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+                : 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
 
   return (
     <span
@@ -560,6 +565,19 @@ function BooleanBadge({ value }: { value?: boolean | null }) {
 }
 
 function formatStatut(statut?: string | null) {
+  const labels: Record<string, string> = {
+    EN_PREPARATION: 'En préparation',
+    ATTENTE_PRISE_EN_COMPTE: 'Attente prise en compte',
+    ATTENTE_REALISATION: 'Attente réalisation',
+    TERMINE: 'Terminé',
+    REFUSE: 'Refusé',
+    SOLDE: 'Soldé',
+    ANNULE: 'Annulé',
+  };
+
+  if (!statut) return '—';
+  if (labels[statut]) return labels[statut];
+
   switch (statut) {
     case 'EN_PREPARATION':
       return 'En préparation';

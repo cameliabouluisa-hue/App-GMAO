@@ -1026,13 +1026,18 @@ export class InterventionService {
       });
 
       if (
-        params.nouvelEtat === INTERVENTION_ETATS.SOLDE &&
+        (params.nouvelEtat === INTERVENTION_ETATS.TERMINE ||
+          params.nouvelEtat === INTERVENTION_ETATS.SOLDE) &&
         updated.idDemande
       ) {
         await this.synchroniserDemandeDepuisInterventionSoldeeTx(tx, {
           idDemande: updated.idDemande,
           changedBy: params.changedBy,
-          commentaire: params.commentaire ?? 'Intervention liée soldée.',
+          commentaire:
+            params.commentaire ??
+            (params.nouvelEtat === INTERVENTION_ETATS.TERMINE
+              ? 'Intervention liée terminée.'
+              : 'Intervention liée soldée.'),
         });
       }
 

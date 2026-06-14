@@ -92,12 +92,14 @@ export async function accepterDemandeIntervention(
   idDemande: number,
   data: ActionDemandeInterventionDto = {},
 ): Promise<DemandeIntervention> {
-  const res = await axios.post<DemandeIntervention>(
+  const res = await axios.post<
+    DemandeIntervention | { demande: DemandeIntervention }
+  >(
     `${BASE_URL}/${idDemande}/accepter`,
     data,
   );
 
-  return res.data;
+  return 'demande' in res.data ? res.data.demande : res.data;
 }
 
 export async function refuserDemandeIntervention(
